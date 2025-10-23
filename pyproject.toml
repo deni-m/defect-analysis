@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qa-bugs"
+version = "0.1.0"
+description = "Lightweight Jira bug analytics with HTML report and LLM insights"
+authors = [{name="You"}]
+requires-python = ">=3.10"
+dependencies = [
+  "pandas>=2.2",
+  "python-dateutil>=2.9",
+  "PyYAML>=6.0",
+  "Jinja2>=3.1",
+  "plotly>=5.22",
+  "typer>=0.12",
+  "pydantic>=2.7",
+  # Browser automation (optional). If you don't need automation, you can remove these.
+  "selenium>=4.23",
+  "webdriver-manager>=4.0",
+]
+
+[project.scripts]
+qa-bugs = "qa_bugs.cli.cli:app"

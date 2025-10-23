@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run QA Bugs CLI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "qa_bugs.cli.cli",
+      "args": [
+        "--config", "configs/example.config.yml",
+        "--input", "data/bugs_sample.csv",
+        "--llm", "on"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
+    }
+  ]
+}

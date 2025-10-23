@@ -1,0 +1,6 @@
+key,Created,Resolved,Status,Priority,FixVersion,Environment,Component
+BUG-1,2025-09-01,2025-09-05,Closed,High,1.0,QA,UI
+BUG-2,2025-09-02,,In Progress,Medium,1.0,QA,Backend
+BUG-3,2025-09-03,2025-09-07,Closed,Critical,1.0,UAT,Payments
+BUG-4,2025-09-04,2025-09-08,Closed,Low,1.0,QA,UI
+BUG-5,2025-09-05,,Open,High,1.0,PROD,Orders

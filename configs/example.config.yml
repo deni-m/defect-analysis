@@ -1,0 +1,38 @@
+project:
+  timezone: "Europe/Kyiv"
+
+fields_mapping:
+  key: "Key"
+  # Adjusted to match sample CSV headers ("Created" / "Resolved") instead of Jira export names
+  created_at: "Created"
+  resolved_at: "Resolved"
+  status: "Status"
+  priority: "Priority"
+  fix_version: "FixVersion"
+  environment: "Environment"
+  category: "Component"  
+
+metrics:
+  enabled:
+    - leakage_rate
+    - cumulative_open_closed
+    - defect_age
+    - age_by_priority   
+
+  params:
+    common:
+      exclude_statuses: ["Canceled", "Cancelled"]
+    defect_age:
+      open_statuses: ["Funnel","Analysis","In Progress","Ready for QA","QA","Ready for Production"]    
+    leakage_rate:
+      intended_env: ["QA"]
+      leak_envs: ["UAT", "Prod"]
+
+llm:
+  enabled: true
+  prompts_dir: "qa_bugs/prompts"
+  provider: azure
+  deployment: "gpt-4o"
+  api_version: "2024-05-01-preview"
+  temperature: 0.2
+  max_tokens: 700

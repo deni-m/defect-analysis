@@ -1,0 +1,16 @@
+output/*
+
+# Python cache / build artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment variables (contains secrets)
+.env
+
+# Optional: virtual environment folders (commented; uncomment if desired)
+# .venv/
+# venv/
+
+
