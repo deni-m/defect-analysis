@@ -3,6 +3,7 @@ from .base import Metric, MetricResult
 
 class AgeByPriority(Metric):
     id = "age_by_priority"
+    display_name = "Age by Priority"
 
     def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
         d = df.copy()

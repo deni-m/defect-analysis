@@ -5,19 +5,22 @@ fields_mapping:
   key: "Key"
   # Adjusted to match sample CSV headers ("Created" / "Resolved") instead of Jira export names
   created_at: "Created"
-  resolved_at: "Resolved"
+  resolved_at: "resolutiondate"
   status: "Status"
   priority: "Priority"
-  fix_version: "FixVersion"
-  environment: "Environment"
+  fix_version: "FixVersions"
+  environment: "customfield_12200"
   category: "Component"  
 
 metrics:
   enabled:
     - leakage_rate
     - cumulative_open_closed
+    - status_by_severity
     - defect_age
-    - age_by_priority   
+    - age_by_priority  
+    - rejection_rate
+    
 
   params:
     common:
@@ -26,7 +29,9 @@ metrics:
       open_statuses: ["Funnel","Analysis","In Progress","Ready for QA","QA","Ready for Production"]    
     leakage_rate:
       intended_env: ["QA"]
-      leak_envs: ["UAT", "Prod"]
+      leak_envs: ["Prod"]
+    rejection_rate:
+      rejected_statuses: ["Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX"]
 
 llm:
   enabled: true

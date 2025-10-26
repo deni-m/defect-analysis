@@ -3,6 +3,7 @@ from .base import Metric, MetricResult
 
 class DefectAge(Metric):
     id = "defect_age"
+    display_name = "Defect Age Distribution"
 
     def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
         d = df.copy()

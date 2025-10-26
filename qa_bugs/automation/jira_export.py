@@ -31,6 +31,44 @@ from qa_bugs.automation.jira_client import JiraClient, JiraClientError, flatten_
 logger = logging.getLogger("jira_export")
 
 
+def _get_field_value(raw):
+    """
+    Convert Jira field payloads to a scalar representation:
+      - [ { "value": "A" }, { "value": "B"} ] -> "A,B"
+      - { "value": "X" } -> "X"
+      - { "name": "Y" }  -> "Y" (if no 'value')
+      - Otherwise (complex) -> JSON string
+    """
+    if isinstance(raw, list):
+        collected = []
+        for item in raw:
+            if isinstance(item, dict) and "value" in item:
+                collected.append(str(item["value"]))
+            else:
+                return json.dumps(raw, ensure_ascii=False)
+        return ",".join(collected)
+    if isinstance(raw, dict):
+        if "value" in raw and isinstance(raw["value"], (str, int, float)):
+            return raw["value"]
+        if "name" in raw and isinstance(raw["name"], (str, int, float)):
+            return raw["name"]
+        return json.dumps(raw, ensure_ascii=False)
+    return raw
+
+
+def _normalize_date_columns(df: pd.DataFrame, columns: list[str]) -> None:
+    """
+    In-place: trim Jira datetime strings like '2025-02-07T12:20:39.379+0000'
+    to '2025-02-07'. Skips values not starting with YYYY-MM-DDT.
+    """
+    for col in columns:
+        if col not in df.columns:
+            continue
+        df[col] = df[col].apply(
+            lambda v: (v[:10] if isinstance(v, str) and len(v) >= 10 and v[4] == "-" and "T" in v else v)
+        )
+
+
 def export_issues(
     client: JiraClient,
     jql: str,
@@ -56,22 +94,22 @@ def export_issues(
                 if isinstance(field_value, (str, int, float, bool)) or field_value is None:
                     issue_row[field_name] = field_value
                 else:
-                    issue_row[field_name] = json.dumps(field_value, ensure_ascii=False)
+                    issue_row[field_name] = _get_field_value(field_value)
             issue_rows.append(issue_row)
         else:
             # Use requested fields list (ensure 'key' present and preserve order)
-            requested = ["key"] + [field for field in fields if field != "key"]
+            requested = ["key"] + [field for field in fields if field != "key" and field.lower() not in ("*all", "*")]
             flattened_issue = flatten_issue(issue)
             raw_fields = issue.get("fields", {}) or {}
             issue_row: dict[str, object] = {}
             for field_name in requested:
                 value = flattened_issue.get(field_name)
-                if value is None:
+                if value is None or value == "":
                     raw_value = raw_fields.get(field_name)
                     if isinstance(raw_value, (str, int, float, bool)) or raw_value is None:
                         value = raw_value
-                    elif raw_value is not None:
-                        value = json.dumps(raw_value, ensure_ascii=False)
+                    else:
+                        value = _get_field_value(raw_value)
                 issue_row[field_name] = value
             issue_rows.append(issue_row)
 
@@ -89,6 +127,9 @@ def export_issues(
     else:
         df = pd.DataFrame(issue_rows)
         mode_label = "requested"
+
+    # NEW: normalize date-only columns
+    _normalize_date_columns(df, ["created", "resolved", "resolutiondate"])
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_csv, index=False)
@@ -114,15 +155,16 @@ def main() -> int:
     site = os.environ.get("JIRA_URL")
     email = os.environ.get("JIRA_EMAIL") or os.environ.get("JIRA_USER")
     token = os.environ.get("JIRA_API_TOKEN")
-    jql = os.environ.get("JIRA_JQL")
+    #jql = 'project=MCKORD AND "Waves[Dropdown]" = "Wave 05" and issuetype = Bug'
+    jql = 'project=MCKORD AND "Waves[Dropdown]" = "Wave 09" AND (issuetype = Bug or (issuetype = "sub-task" and summary~"[bug]"))'
     
-    fields = ["*all"]  # Set to ["*all"] or ["*"] to export every field; otherwise supply explicit field names.
-    limit = 50
-    output_path = Path("jira_issues.csv")
+    fields = None #["*all"]  # Set to ["*all"] or ["*"] to export every field; otherwise supply explicit field names.
+    limit = None
+    output_path = Path("jira_issues_mck_w9.csv")
     field_map_out = Path("jira_fields.csv")
     # Fields
     if not fields:
-        fields = ["summary", "status", "priority", "assignee", "created", "updated", "resolutiondate"]
+        fields = ["key","issuetype", "status", "priority", "created", "resolutiondate","customfield_12200"]
 
     # Auth: prefer basic (email+token) else bearer (token only)
     if email and token:
@@ -138,8 +180,8 @@ def main() -> int:
         max_retries=3,
     )
 
-    field_map = client.get_field_display_map()
-    export_field_mapping(field_map, field_map_out)
+    #field_map = client.get_field_display_map()
+    #export_field_mapping(field_map, field_map_out)
 
     try:
         export_issues(

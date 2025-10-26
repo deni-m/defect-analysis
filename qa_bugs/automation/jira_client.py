@@ -137,6 +137,7 @@ class JiraClient:
         next_token: Optional[str] = None
         yielded = 0
         first_total_logged = False
+        page_index = 0  # NEW: page counter
 
         while True:
             page = self.search_page(
@@ -147,10 +148,23 @@ class JiraClient:
                 next_token=next_token,
             )
             issues = page.get("issues", []) or []
+            page_index += 1
+            is_last_flag = bool(page.get("isLast")) or not page.get("nextPageToken")
+
             if include_total and not first_total_logged:
                 if "total" in page:
                     logger.info("JIRA enhanced search total=%s (may exceed run limit)", page.get("total"))
                 first_total_logged = True
+
+            # NEW: progress log before yielding issues
+            logger.info(
+                "jira.get_issues page=%d size=%d cumulative_after=%d next_token=%s is_last=%s",
+                page_index,
+                len(issues),
+                yielded + len(issues),
+                "yes" if page.get("nextPageToken") else "no",
+                is_last_flag,
+            )
 
             for issue in issues:
                 yield issue
@@ -158,7 +172,7 @@ class JiraClient:
                 if limit is not None and yielded >= limit:
                     return
 
-            is_last = bool(page.get("isLast")) or not page.get("nextPageToken")
+            is_last = is_last_flag
             next_token = page.get("nextPageToken")
 
             if is_last:

@@ -4,3 +4,4 @@ typer
 plotly
 python-dotenv
 openai
+requests

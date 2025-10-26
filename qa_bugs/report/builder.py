@@ -15,6 +15,9 @@ h1,h2,h3{margin:0.4em 0}
 .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin:20px 0;box-shadow:0 2px 4px rgba(0,0,0,.04)}
 .kpi{display:flex;gap:16px;flex-wrap:wrap}
 .kpi .item{flex:1 1 200px;background:#f1f5f9;border-radius:10px;padding:12px}
+.kpi .item.risk-warn{background:#fff4e6;border:1px solid #ffb347}
+.kpi .item.risk-high{background:#ffe5e5;border:1px solid #ff6b6b}
+.kpi .item.risk-ok{background:#e6f9ed;border:1px solid #34c759}
 .kpi .item b{display:block;font-size:0.8rem;text-transform:uppercase;letter-spacing:.5px;color:#334155;margin-bottom:4px}
 ul{padding-left:18px}
 .insight{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:16px}
@@ -22,13 +25,16 @@ ul{padding-left:18px}
 .insight ul{margin:0;padding-left:20px}
 .insight li{font-size:0.85rem;line-height:1.15rem;color:#334155;margin-bottom:4px}
 .insight p{font-size:0.85rem;line-height:1.25rem;margin:0 0 6px 0;color:#334155}
+/* Chart layout helpers */
+.chart-half-right{display:flex;}
+.chart-half-right .inner{flex:0 0 50%;margin-left:auto;}
 </style></head><body>
 <h1>{{ title }}</h1>
 {% if overall_html %}<div class='card'><h2>Overall Summary (LLM)</h2>{{ overall_html | safe }}</div>{% endif %}
 {% if summary_kpi_html %}{{ summary_kpi_html | safe }}{% endif %}
 {% for mid in metric_order %}
     {% if figures.get(mid) %}
-    <div class='card'><h2>{{ mid }}</h2>{{ figures.get(mid) | safe }}{% if insights_html.get(mid) %}{{ insights_html.get(mid) | safe }}{% endif %}</div>
+    <div class='card'><h2>{{ display_names.get(mid, mid) }}</h2>{{ figures.get(mid) | safe }}{% if insights_html.get(mid) %}{{ insights_html.get(mid) | safe }}{% endif %}</div>
     {% endif %}
 {% endfor %}
 </body></html>"""
@@ -76,6 +82,7 @@ class ReportBuilder:
         overall: Optional[str] = None,
         title: str = "QA Bug Analytics Report",
         metric_order: Optional[Iterable[str]] = None,
+        header_prefix: Optional[str] = None,  # NEW: optional prefix for report header
     ) -> str:
         figures: Dict[str, str] = {}
         # Per-metric additional fragments (e.g., KPI grids) decoupled from metric build_figure
@@ -164,6 +171,8 @@ class ReportBuilder:
         leaked_count = None
         closed_defects = None
         opened_defects = None
+        rejection_pct = None
+        rejected_count = None
 
         # First pass: extract KPIs without producing figures (to allow independent ordering later)
         for mid, res in results.items():
@@ -224,12 +233,43 @@ class ReportBuilder:
                         "</div>"
                     )
                     extra_fragments[mid] = frag
+            elif mid == "rejection_rate":
+                # Avoid boolean ambiguity with DataFrame by selecting explicitly
+                rej_tbl = res.tables.get("rejection_summary")
+                if rej_tbl is None or rej_tbl.empty:
+                    alt_tbl = res.tables.get("summary")
+                    if alt_tbl is not None and not alt_tbl.empty:
+                        rej_tbl = alt_tbl
+                if rej_tbl is not None and not rej_tbl.empty:
+                    rej_row = rej_tbl.iloc[0].to_dict()
+                    rejection_pct = float(rej_row.get("rejection_percent", 0)) if isinstance(rej_row.get("rejection_percent"), (int, float)) else None
+                    rejected_val = rej_row.get("rejected", 0)
+                    total_val = rej_row.get("total", None)
+                    rejected_count = int(rejected_val) if isinstance(rejected_val, (int, float)) else None
+                    if total_defects is None and isinstance(total_val, (int, float)):
+                        total_defects = int(total_val)
+                    # Build metric-specific fragment (simple KPI trio)
+                    def _pct_disp2(v):
+                        try:
+                            s = f"{float(v):.1f}".rstrip("0").rstrip(".")
+                            return s
+                        except Exception:
+                            return str(v)
+                    frag = (
+                        "<div class='kpi'>"
+                        f"<div class='item'><b>Rejection Rate</b><div>{_pct_disp2(rej_row.get('rejection_percent', 0))}%</div></div>"
+                        f"<div class='item'><b>Rejected</b><div>{rej_row.get('rejected', 0)}</div></div>"
+                        f"<div class='item'><b>Total</b><div>{rej_row.get('total', 0)}</div></div>"
+                        "</div>"
+                    )
+                    extra_fragments[mid] = frag
 
         # Second pass: build figures in desired order
         figure_order = list(metric_order) if metric_order else list(results.keys())
         from qa_bugs.metrics import METRICS as _METRICS_REGISTRY  # reused to instantiate for build_figure
         # Instantiate metric objects (lightweight) for figure building
         metric_objs = {mid: _METRICS_REGISTRY[mid]() for mid in figure_order if mid in _METRICS_REGISTRY}
+        display_names = {mid: getattr(metric_objs[mid], "display_name", mid) for mid in metric_objs}
         for mid in figure_order:
             res = results.get(mid)
             if res is None:
@@ -241,6 +281,9 @@ class ReportBuilder:
             if fig_html:
                 # Prepend any extra fragments (e.g., KPI grid) for this metric
                 prefix = extra_fragments.get(mid, "")
+                # Apply layout wrapper for leakage_rate (right aligned half width) centrally
+                if mid == "leakage_rate":
+                    fig_html = f'<div class=""><div class="inner">{fig_html}</div></div>'
                 figures[mid] = prefix + fig_html
 
         # Compose summary KPI row HTML if we have at least one primary metric
@@ -276,11 +319,36 @@ class ReportBuilder:
                     leakage_block = f"{leak_pct_disp}% ({leaked_count} leaked)"
                 else:
                     leakage_block = f"{leak_pct_disp}%"
+            rejection_block = "-"
+            if rejection_pct is not None:
+                rej_pct_disp = pct_fmt(rejection_pct)
+                if rejected_count is not None:
+                    rejection_block = f"{rej_pct_disp}% ({rejected_count} rejected)"
+                else:
+                    rejection_block = f"{rej_pct_disp}%"
+            # Determine risk classes based on thresholds
+            leakage_class = ""
+            if leakage_pct is not None:
+                if leakage_pct > 10:
+                    leakage_class = " risk-high"
+                elif leakage_pct > 5:
+                    leakage_class = " risk-warn"
+                else:
+                    leakage_class = " risk-ok"
+            rejection_class = ""
+            if rejection_pct is not None:
+                if rejection_pct > 20:
+                    rejection_class = " risk-high"
+                elif rejection_pct > 10:
+                    rejection_class = " risk-warn"
+                else:
+                    rejection_class = " risk-ok"
             summary_kpi_html = (
                 "<div class='card'><h2>Summary KPIs</h2><div class='kpi'>"
                 f"<div class='item'><b>Total Defects</b><div>{total_defects}</div></div>"
                 f"<div class='item'><b>Open</b><div>{open_block}</div></div>"
-                f"<div class='item'><b>Leakage</b><div>{leakage_block}</div></div>"
+                f"<div class='item{leakage_class}'><b>Leakage</b><div>{leakage_block}</div></div>"
+                f"<div class='item{rejection_class}'><b>Rejection</b><div>{rejection_block}</div></div>"
                 f"<div class='item'><b>Avg Age</b><div>{fmt_days(avg_age_all)}</div></div>"
                 f"<div class='item'><b>Avg Closed Age</b><div>{fmt_days(avg_age_closed)}</div></div>"
                 "</div></div>"
@@ -312,13 +380,16 @@ class ReportBuilder:
         tpl = Template(HTML_TEMPLATE)
         # Determine final ordered list for template iteration
         final_order = list(metric_order) if metric_order else list(figures_to_render.keys())
+        # Compose final title with optional prefix
+        final_title = f"{header_prefix} {title}" if header_prefix else title
         return tpl.render(
-            title=title,
+            title=final_title,
             results=results,
             insights_html=insights_html,
             overall_html=overall_html,
             figures=figures_to_render,
             summary_kpi_html=summary_kpi_html,
             metric_order=final_order,
+            display_names=display_names,
         )
 

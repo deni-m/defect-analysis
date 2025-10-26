@@ -3,6 +3,7 @@ from .base import Metric, MetricResult
 
 class CumulativeOpenClosed(Metric):
     id = "cumulative_open_closed"
+    display_name = "Cumulative Open vs Closed"
 
     def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
         d = df.copy()
@@ -35,7 +36,28 @@ class CumulativeOpenClosed(Metric):
             return None
         x = trend["date"] if "date" in trend.columns else trend.index
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=x, y=trend["opened"], mode="lines", name="Opened", fill="tozeroy"))
-        fig.add_trace(go.Scatter(x=x, y=trend["closed"], mode="lines", name="Closed"))
+        # Opened remains area (line + fill). Closed rendered as discrete square markers for clearer contrast.
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=trend["opened"],
+                mode="lines",
+                name="Opened",
+                fill="tozeroy",
+                line=dict(width=2, color="#636efa"),
+            )
+        )
+        # Closed filled area (slightly transparent so underlying grid & Opened line remain visible)
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=trend["closed"],
+                mode="lines",
+                name="Closed",
+                fill="tozeroy",
+                line=dict(width=2, color="#EF553B"),
+                fillcolor="rgba(239,85,59,0.35)",
+            )
+        )
         fig.update_layout(title="Cumulative Opened vs Closed")
         return fig.to_html(include_plotlyjs=False, full_html=False)

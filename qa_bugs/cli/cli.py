@@ -21,6 +21,7 @@ def run(
     since: str = typer.Option(None, "--since", help="YYYY-MM-DD filter (created since)"),
     until: str = typer.Option(None, "--until", help="YYYY-MM-DD filter (created until)"),
     llm: str = typer.Option("off", "--llm", help="on/off LLM analysis"),
+    header_prefix: str = typer.Option(None, "--header-prefix", help="Optional prefix for report header"),  # NEW
 ):
     cfg = yaml.safe_load(config.read_text(encoding="utf-8"))
 
@@ -66,6 +67,7 @@ def run(
         overall=overall,
         title=f"Bug Analytics Report {timestamp}",
         metric_order=metric_ids,
+        header_prefix=header_prefix,  # NEW
     )
     out_path.write_text(html, encoding="utf-8")
     typer.echo(f"Report saved to: {out_path}")

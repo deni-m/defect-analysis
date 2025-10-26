@@ -61,6 +61,8 @@ class MetricResult:
 
 class Metric:
     id: str = "base"
+    # Human-friendly name for report headings; ReportBuilder will prefer this when present.
+    display_name: str = "Base Metric"
     def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
         raise NotImplementedError
 
