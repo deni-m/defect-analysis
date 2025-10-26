@@ -25,8 +25,18 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple, Protocol
+from pathlib import Path
+import logging
+logger = logging.getLogger("jira_export")
 
 import requests
+
+# Optional .env loading
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    pass
 
 
 # =========================
@@ -214,6 +224,10 @@ class JiraSearchClient:
         attempt = 0
         while True:
             attempt += 1
+            logger.debug(
+                "fetch_page attempt=%s next_token=%s max_results=%s method=%s",
+                attempt, next_token, max_results, self.cfg.method
+            )
             try:
                 if self.cfg.method == "GET":
                     resp = self.session.get(
@@ -231,21 +245,25 @@ class JiraSearchClient:
                         auth=self.auth, timeout=self.cfg.timeout_s
                     )
             except requests.RequestException as e:
+                logger.warning("network error attempt=%s error=%s", attempt, e)
                 if attempt <= self.cfg.max_retries:
                     self._backoff_sleep(attempt, None)
                     continue
                 raise e
 
             if resp.status_code == 429:
+                logger.warning("rate limited (429) attempt=%s retry_after=%s", attempt, resp.headers.get("Retry-After"))
                 if attempt <= self.cfg.max_retries:
                     self._backoff_sleep(attempt, resp.headers.get("Retry-After"))
                     continue
             if 500 <= resp.status_code < 600:
+                logger.warning("server error status=%s attempt=%s", resp.status_code, attempt)
                 if attempt <= self.cfg.max_retries:
                     self._backoff_sleep(attempt, None)
                     continue
 
             resp.raise_for_status()
+            logger.debug("fetch_page success status=%s", resp.status_code)
             return resp.json()
 
 
@@ -292,8 +310,10 @@ class ExportRunner:
 
         is_complete = False
 
+        logger.info("run start jql=%s page_size=%s expand=%s resume_token=%s", self.jql, self.max_results, self.expand, next_token)
         try:
             while True:
+                logger.debug("page_request pages_done=%s exported_total=%s next_token=%s", pages_done, exported_total, next_token)
                 data = self.client.fetch_page(
                     jql=self.jql,
                     fields=self.fields,
@@ -304,9 +324,14 @@ class ExportRunner:
                 issues = data.get("issues", []) or []
                 is_last = bool(data.get("isLast", False))
                 returned_next = data.get("nextPageToken")
+                logger.info(
+                    "page_received page_index=%s issues=%s is_last=%s returned_next=%s",
+                    pages_done + 1, len(issues), is_last, returned_next
+                )
 
                 # Write page
                 written = self.exporter.write_page(issues)
+                logger.debug("page_written count=%s cumulative=%s", written, exported_total + written)
                 exported_total += written
                 pages_done += 1
 
@@ -319,21 +344,23 @@ class ExportRunner:
                     **self.meta,
                 }
                 self.checkpoint.save(new_ckpt)
+                logger.debug("checkpoint_saved pages_done=%s exported_total=%s next_token=%s", pages_done, exported_total, returned_next)
 
                 # Prepare for next loop
                 next_token = returned_next
 
                 if self._interrupted:
+                    logger.warning("interrupted_by_signal exported_total=%s", exported_total)
                     break
                 if is_last or not next_token:
                     is_complete = True
+                    logger.info("completed_all_pages exported_total=%s pages=%s", exported_total, pages_done)
                     break
-
         except requests.HTTPError as e:
-            sys.stderr.write(f"HTTP error: {e.response.status_code} {e.response.text}\n")
+            logger.error("http_error status=%s body=%s", e.response.status_code, e.response.text)
         except Exception as e:
-            sys.stderr.write(f"Error: {e}\n")
-
+            logger.exception("unexpected_error error=%s", e)
+        logger.info("run_end exported_total=%s complete=%s", exported_total, is_complete)
         return exported_total, is_complete
 
 
@@ -341,67 +368,82 @@ class ExportRunner:
 # CLI
 # =========================
 
-def parse_args():
-    ap = argparse.ArgumentParser(description="Export Jira issues via /rest/api/3/search/jql (OOP, resume-safe)")
-    ap.add_argument("--site", required=True, help="https://your-domain.atlassian.net")
-    ap.add_argument("--email", required=True, help="Account email")
-    ap.add_argument("--token", required=True, help="API token")
-    ap.add_argument("--jql", required=True, help='e.g. "project = HSP ORDER BY created DESC"')
-    ap.add_argument("--fields", default=",".join(DEFAULT_FIELDS),
-                    help="Comma-separated field names (or customfield_xxxxx). Empty string => no fields array.")
-    ap.add_argument("--expand", default="", help="Comma-separated expand values")
-    ap.add_argument("--max-results", type=int, default=100, help="Page size (typical 100)")
-    ap.add_argument("--format", choices=["csv", "jsonl"], default="csv", help="Output format")
-    ap.add_argument("--out", required=True, help="Output file path (append mode)")
-    ap.add_argument("--checkpoint", default="", help="Checkpoint file path (JSON). If omitted, resume is disabled")
-    ap.add_argument("--method", choices=["GET", "POST"], default="GET", help="HTTP method to use")
-    ap.add_argument("--timeout", type=int, default=90, help="HTTP timeout seconds")
-    ap.add_argument("--retries", type=int, default=6, help="Max retries for transient errors")
-    return ap.parse_args()
-
-
 def make_exporter(fmt: str, out_path: str) -> BaseExporter:
     return CsvExporter(out_path) if fmt == "csv" else JsonlExporter(out_path)
 
+def main():      
+    # Environment-only configuration (CLI args removed for these settings)
+    log_level = os.environ.get("JIRA_LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
+    logger.info("startup version=enhanced logging_level=%s", log_level)
 
-def main():
-    args = parse_args()
-    fields = None if args.fields.strip() == "" else [f.strip() for f in args.fields.split(",") if f.strip()]
-    expand = None if args.expand.strip() == "" else args.expand
+    site = os.environ.get("JIRA_URL")
+    email = os.environ.get("JIRA_EMAIL") or os.environ.get("JIRA_USER")
+    token = os.environ.get("JIRA_API_TOKEN")
+    jql = os.environ.get("JIRA_JQL")
+
+    if not all([site, email, token, jql]):
+        logger.error("missing_required_env site=%s email=%s token=%s jql_present=%s",
+                     bool(site), bool(email), bool(token), bool(jql))
+        sys.exit(2)
+    # NOTE: simplified fixed config (fields empty -> omitted)
+    fields = DEFAULT_FIELDS
+    expand = None
+    page_size = 50
+    out_path = "jira_issues.csv"
+    checkpoint_path = ""
+    fmt = "csv"
+    method = "GET"
+    timeout_s = 10
+    retries = 3
+    logger.info(
+        "config site=%s user=%s jql_len=%s page_size=%s out=%s checkpoint=%s retries=%s timeout=%s",
+        site, email, len(jql or ""), page_size, out_path, bool(checkpoint_path), retries, timeout_s
+    )
 
     cfg = JiraConfig(
-        site=args.site,
-        email=args.email,
-        token=args.token,
-        method=args.method,
-        timeout_s=args.timeout,
-        max_retries=args.retries,
+        site=site,
+        email=email,
+        token=token,
+        method=method,
+        timeout_s=timeout_s,
+        max_retries=retries,
     )
-    client = JiraSearchClient(cfg)
-    exporter = make_exporter(args.format, args.out)
-    ckpt = CheckpointStore(args.checkpoint if args.checkpoint.strip() else None)
 
-    meta = {
-        "site": args.site,
-        "jql": args.jql,
-        "format": args.format,
-        "out": args.out,
+    meta: Dict = {
+        "site": site,
+        "jql": jql,
+        "fields": fields,
+        "format": fmt,
+        "out": out_path,
+        "checkpoint": checkpoint_path,
+        "method": method,
     }
 
+    exporter = make_exporter(fmt, out_path)
+    checkpoint = CheckpointStore(checkpoint_path if checkpoint_path else None)
     runner = ExportRunner(
-        client=client,
+        client=JiraSearchClient(cfg),
         exporter=exporter,
-        checkpoint=ckpt,
-        jql=args.jql,
+        checkpoint=checkpoint,
+        jql=jql,
         fields=fields,
-        max_results=args.max_results,
+        max_results=page_size,
         expand=expand,
         meta=meta,
     )
 
-    count, complete = runner.run()
-    status = "complete" if complete else "incomplete (resume available)"
-    print(f"Exported {count} issues → {args.out} — {status}")
+    print(
+        f"[jira-export] site={cfg.site} method={cfg.method} page_size={page_size} "
+        f"fields={'<omitted>' if fields is None else 0} "
+        f"format={fmt} out={out_path} checkpoint={'on' if checkpoint_path else 'off'}"
+    )
+    exported, complete = runner.run()
+    logger.info("summary exported=%s complete=%s", exported, complete)
+    print(f"[jira-export] exported={exported} complete={complete}")
 
 
 if __name__ == "__main__":
