@@ -27,13 +27,29 @@ class LeakageRate(Metric):
     requires = {"status", "environment"}
 
     def compute(self, df: pd.DataFrame, ctx: dict) -> MetricResult:
-        # 0) Metric parameters branch
-        params_root = ctx.get("metrics", {})
-        metrics_params = params_root.get("params", {})
+        """Compute leakage rate supporting both legacy full-config ctx and new merged per-metric params.
 
-        params = metrics_params.get(self.id, {})
-        common = metrics_params.get("common", {})
-        exclude_statuses = set(common.get("exclude_statuses", []))
+        New style (after CLI change): ctx is a dict merged from common + metric-specific params and contains:
+            exclude_statuses, intended_env (optional), leak_envs (optional)
+            plus __full_config__ pointing to the original root config (ignored here).
+
+        Legacy style (pre-change): ctx was the full root config containing nested metrics.params.*.
+        We detect that and extract similarly so the metric remains backward compatible.
+        """
+        if ctx is None:
+            ctx = {}
+
+        # Detect legacy structure
+        if "metrics" in ctx and "params" in ctx.get("metrics", {}):
+            metrics_params = ctx["metrics"].get("params", {})
+            merged = {**metrics_params.get("common", {}), **metrics_params.get(self.id, {})}
+            merged["__full_config__"] = ctx
+            ctx = merged
+
+        # At this point ctx is the merged params dict
+        exclude_statuses = set(ctx.get("exclude_statuses", []))
+        intended_envs = ctx.get("intended_env", [])
+        leak_envs = ctx.get("leak_envs", [])
 
         d = df.copy()
 
@@ -58,10 +74,6 @@ class LeakageRate(Metric):
         )
         env_joined = env_lists.apply(lambda lst: ",".join(lst))
         d["environment_normalized"] = env_joined
-
-        # 3) Parameters (must be lists)
-        intended_envs = params.get("intended_env", [])
-        leak_envs = params.get("leak_envs", [])
 
         if not isinstance(intended_envs, list):
             raise ValueError("leakage_rate: 'intended_env' must be a list, e.g. ['QA'].")

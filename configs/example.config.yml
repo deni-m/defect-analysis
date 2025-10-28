@@ -20,7 +20,7 @@ metrics:
     - defect_age
     - age_by_priority  
     - rejection_rate
-    
+    - defects_by_env_priority
 
   params:
     common:
@@ -32,6 +32,8 @@ metrics:
       leak_envs: ["Prod"]
     rejection_rate:
       rejected_statuses: ["Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX"]
+    defects_by_env_priority:
+      env_order: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"]
 
 llm:
   enabled: true

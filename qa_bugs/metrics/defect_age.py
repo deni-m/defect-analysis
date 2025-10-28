@@ -7,11 +7,11 @@ class DefectAge(Metric):
 
     def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
         d = df.copy()
-        # 1) читаємо як tz-aware (UTC), 2) знімаємо tz -> стає tz-naive
+        # 1) read as tz-aware (UTC), 2) remove tz -> becomes tz-naive
         d["created_at"]  = pd.to_datetime(d["created_at"],  errors="coerce", utc=True).dt.tz_convert(None)
         d["resolved_at"] = pd.to_datetime(d["resolved_at"], errors="coerce", utc=True).dt.tz_convert(None)
 
-        # наївний "зараз" у UTC
+        # naive "now" in UTC
         now = pd.Timestamp.utcnow().tz_localize(None)
 
         end = d["resolved_at"].fillna(now)

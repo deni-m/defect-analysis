@@ -40,9 +40,16 @@ def run(
     # Metrics now sourced exclusively from config (static set)
     metric_ids = cfg['metrics']['enabled']
     results = {}
+    metrics_params_root = cfg.get("metrics", {}).get("params", {})
+    common_params = metrics_params_root.get("common", {})
     for mid in metric_ids:
         metric_cls = METRICS[mid]
-        res = metric_cls().compute(df_f, cfg)
+        specific = metrics_params_root.get(mid, {})
+        # Merge common + specific (specific overrides)
+        merged_params = {**common_params, **specific}
+        # Provide fallback access to original full config if a legacy metric needs it
+        merged_params["__full_config__"] = cfg
+        res = metric_cls().compute(df_f, merged_params)
         results[mid] = res
 
     llm_cfg = cfg.get("llm", {})
