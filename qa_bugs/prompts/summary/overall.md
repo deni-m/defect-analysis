@@ -8,6 +8,8 @@ Metrics Context JSON:
 Produce structured markdown:
 ## Executive Summary
 Short paragraph cross-metric insight.
+Here should be included the key points of the whole analysis. Short and specific.
+
 ## Key Relationships
 Bullets linking aging, leakage, backlog, priority distribution.
 ## Risks

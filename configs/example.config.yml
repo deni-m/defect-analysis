@@ -15,12 +15,12 @@ fields_mapping:
 metrics:
   enabled:
     - leakage_rate
+    - defects_by_env_priority
     - cumulative_open_closed
     - status_by_severity
     - defect_age
     - age_by_priority  
     - rejection_rate
-    - defects_by_env_priority
 
   params:
     common:
@@ -43,3 +43,9 @@ llm:
   api_version: "2024-05-01-preview"
   temperature: 0.2
   max_tokens: 700
+  debug: true  # enable structured LLM debug logging
+  log_prompts: true  # persist prompt & response text files in run output directory
+  table_row_limit: 200
+  summary_table_row_limit: 40
+  max_prompt_chars: 120000
+  context_format: csv  # use CSV instead of JSON for LLM context (more token-efficient)

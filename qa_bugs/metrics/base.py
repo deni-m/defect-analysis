@@ -44,18 +44,24 @@ def _df_to_records_json_safe(df: pd.DataFrame):
 
 
 class MetricResult:
-    def __init__(self, metric_id: str, tables: Dict[str, pd.DataFrame] = None, charts: Dict[str, Any] = None, summary: str = ""):
+    def __init__(self, metric_id: str, tables: Dict[str, pd.DataFrame] = None, charts: Dict[str, Any] = None, summary: str = "", llm_tables: list[str] = None):
         self.metric_id = metric_id
         self.tables = tables or {}
         self.charts = charts or {}
         self.summary = summary
+        # Optional list of table names to include in LLM payload (defaults to all)
+        self.llm_tables = llm_tables
 
     def payload(self) -> dict:
+        # If llm_tables is specified, only include those tables; otherwise include all
+        tables_to_include = self.llm_tables if self.llm_tables is not None else list(self.tables.keys())
         return {
             "metric_id": self.metric_id,
             "summary": self.summary,
             "tables": {
-                name: _df_to_records_json_safe(df) for name, df in self.tables.items()
+                name: _df_to_records_json_safe(self.tables[name])
+                for name in tables_to_include
+                if name in self.tables
             },
         }
 

@@ -30,8 +30,8 @@ ul{padding-left:18px}
 .chart-half-right .inner{flex:0 0 50%;margin-left:auto;}
 </style></head><body>
 <h1>{{ title }}</h1>
-{% if overall_html %}<div class='card'><h2>Overall Summary (LLM)</h2>{{ overall_html | safe }}</div>{% endif %}
 {% if summary_kpi_html %}{{ summary_kpi_html | safe }}{% endif %}
+{% if overall_html %}<div class='card'><h2>Overall Summary (LLM)</h2>{{ overall_html | safe }}</div>{% endif %}
 {% for mid in metric_order %}
     {% if figures.get(mid) %}
     <div class='card'><h2>{{ display_names.get(mid, mid) }}</h2>{{ figures.get(mid) | safe }}{% if insights_html.get(mid) %}{{ insights_html.get(mid) | safe }}{% endif %}</div>
@@ -88,76 +88,94 @@ class ReportBuilder:
         # Per-metric additional fragments (e.g., KPI grids) decoupled from metric build_figure
         extra_fragments: Dict[str, str] = {}
         def _format_insight(text: str, heading: str = "Insight") -> str:
-            """Convert raw LLM text into a styled HTML block.
+            """Render LLM markdown preserving section grouping.
 
-            Rules:
-            - Lines starting with '###' or '##' are treated as subheadings (ignored, we use heading param).
-            - Lines starting with '-', '*', or numbered '1.' become bullet items.
-            - Other non-empty lines become paragraph elements.
-            - Empty lines create paragraph breaks.
+            Section model:
+            - Each heading (#/##/###) starts a new section.
+            - Paragraph lines accumulate under current section until blank or list item.
+            - Bullets / ordered items belong to the section where they appear.
+            - Bold-only lines (**text**) treated as bullet emphasis.
+            - If no heading encountered before content, all goes into an implicit section.
             """
             if not text or not text.strip():
                 return ""
             lines = [l.rstrip() for l in text.splitlines()]
-            bullets: list[str] = []  # unordered
-            ordered: list[str] = []  # numbered
-            paras: list[str] = []
-            current_para: list[str] = []
-            for ln in lines:
-                stripped = ln.strip()
+            sections: list[dict] = []  # [{title:str|None, paras:[], bullets:[], ordered:[]}]
+            current = {"title": None, "paras": [], "bullets": [], "ordered": []}
+            def push_para():
+                if para_buf:
+                    current["paras"].append(" ".join(para_buf))
+                    para_buf.clear()
+            para_buf: list[str] = []
+            for raw in lines:
+                stripped = raw.strip()
                 if not stripped:
-                    if current_para:
-                        paras.append(" ".join(current_para))
-                        current_para = []
+                    push_para()
                     continue
-                if stripped.startswith(("-", "*")):
-                    if current_para:
-                        paras.append(" ".join(current_para))
-                        current_para = []
-                    bullets.append(stripped.lstrip("-* "))
-                    continue
-                # numbered list like '1. text'
-                if len(stripped) > 2 and stripped[0].isdigit() and stripped[1] == '.':
-                    if current_para:
-                        paras.append(" ".join(current_para))
-                        current_para = []
-                    ordered.append(stripped[2:].strip())
-                    continue
-                # Convert markdown headings (###, ##, #) into bullet items instead of headers
+                # Heading
                 if stripped.startswith("###") or stripped.startswith("##") or stripped.startswith("#"):
-                    heading_text = stripped.lstrip("#").strip()
-                    if heading_text:
-                        if current_para:
-                            paras.append(" ".join(current_para))
-                            current_para = []
-                        bullets.append(heading_text)
+                    push_para()
+                    # Start new section
+                    if current["title"] is not None or current["paras"] or current["bullets"] or current["ordered"]:
+                        sections.append(current)
+                        current = {"title": None, "paras": [], "bullets": [], "ordered": []}
+                    current["title"] = stripped.lstrip("#").strip()
                     continue
-                # Lines that are only bold (e.g., **Issue** or **High Risk**) become bullets
+                # Unordered bullet: keep inline markdown (don't strip leading '**')
+                if stripped.startswith("-") or stripped.startswith("*"):
+                    push_para()
+                    # Remove only the first list marker and following space
+                    bullet_body = stripped[1:].lstrip()  # safe because startswith '-' or '*'
+                    # Filter out separator artifacts like '--', '---', '-- --'
+                    if all(ch == '-' for ch in bullet_body) and len(bullet_body) <= 3:
+                        continue
+                    if bullet_body in {"--", "---"}:
+                        continue
+                    if bullet_body.replace("-", "").strip() == "":  # purely dashes/spaces
+                        continue
+                    current["bullets"].append(bullet_body)
+                    continue
+                # Ordered bullet pattern (1. ...) -> normalize to unordered bullet for consistent style
+                if len(stripped) > 2 and stripped[0].isdigit() and stripped[1] == '.':
+                    push_para()
+                    item_text = stripped[2:].strip()
+                    # Avoid capturing empty artifact items
+                    if item_text and item_text not in {"--", "---"}:
+                        current["bullets"].append(item_text)
+                    continue
+                # Bold-only line -> treat as bullet emphasis but preserve ** for inline processing
                 if stripped.startswith("**") and stripped.endswith("**") and len(stripped) > 4:
-                    bold_text = stripped.strip("*").strip()
-                    if bold_text:
-                        if current_para:
-                            paras.append(" ".join(current_para))
-                            current_para = []
-                        bullets.append(bold_text)
+                    push_para()
+                    current["bullets"].append(stripped)
                     continue
-                current_para.append(stripped)
-            if current_para:
-                paras.append(" ".join(current_para))
+                # Default text -> paragraph buffer
+                para_buf.append(stripped)
+            push_para()
+            # Append last section if it has any content
+            if current["title"] is not None or current["paras"] or current["bullets"] or current["ordered"]:
+                sections.append(current)
+            def _apply_inline_markdown(s: str) -> str:
+                # Replace **bold** with <strong>bold</strong>; non-greedy.
+                import re
+                out = re.sub(r"\*\*(.+?)\*\*", lambda m: f"<strong>{m.group(1).strip()}</strong>", s)
+                # Remove unmatched orphaned '**' (e.g., produced by truncation) -> replace with ''
+                out = re.sub(r"\*{2,}", "", out)  # any remaining sequences of ** become empty
+                # Collapse multiple spaces
+                out = re.sub(r"\s{2,}", " ", out).strip()
+                return out
+
             html_parts = ["<div class='insight'>", f"<h3>{heading}</h3>"]
-            if paras:
-                for p in paras:
-                    html_parts.append(f"<p>{p}</p>")
-            if bullets:
-                html_parts.append("<ul>")
-                for b in bullets:
-                    html_parts.append(f"<li>{b}</li>")
-                html_parts.append("</ul>")
-            if ordered:
-                html_parts.append("<ol>")
-                for o in ordered:
-                    html_parts.append(f"<li>{o}</li>")
-                html_parts.append("</ol>")
+            for sec in sections:
+                if sec["title"]:
+                    html_parts.append(f"<h4>{_apply_inline_markdown(sec['title'])}</h4>")
+                for p in sec["paras"]:
+                    html_parts.append(f"<p>{_apply_inline_markdown(p)}</p>")
+                if sec["bullets"]:
+                    html_parts.append("<ul>")
+                    for b in sec["bullets"]:
+                        html_parts.append(f"<li>{_apply_inline_markdown(b)}</li>")
+                    html_parts.append("</ul>")
+                # Ordered list removed (normalized to bullets); ignore sec["ordered"]
             html_parts.append("</div>")
             return "".join(html_parts)
 

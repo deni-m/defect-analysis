@@ -42,29 +42,32 @@ def run(
     results = {}
     metrics_params_root = cfg.get("metrics", {}).get("params", {})
     common_params = metrics_params_root.get("common", {})
-    for mid in metric_ids:
-        metric_cls = METRICS[mid]
-        specific = metrics_params_root.get(mid, {})
+    for metric_id in metric_ids:
+        metric_cls = METRICS[metric_id]
+        specific = metrics_params_root.get(metric_id, {})
         # Merge common + specific (specific overrides)
         merged_params = {**common_params, **specific}
         # Provide fallback access to original full config if a legacy metric needs it
         merged_params["__full_config__"] = cfg
         res = metric_cls().compute(df_f, merged_params)
-        results[mid] = res
+        results[metric_id] = res
 
     llm_cfg = cfg.get("llm", {})
     llm_enabled = (llm.lower() == "on") and llm_cfg.get("enabled", True)
     insights = {}
     overall = ""
-    if llm_enabled:
-        service = LLMService(llm_cfg)
-        for mid, res in results.items():
-            insights[mid] = service.analyze_metric(mid, res.payload())
-        overall = service.summarize({k: v.payload() for k, v in results.items()})
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     out_dir = Path("output") / f"run_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if llm_enabled:
+        service = LLMService(llm_cfg, log_dir=str(out_dir))
+        for metric_id, res in results.items():
+            insights[metric_id] = service.analyze_metric(metric_id, res.payload())
+        # Summarize based on generated insight texts instead of raw metric payloads
+        overall = service.summarize_texts(insights)
+
     out_path = out_dir / "report.html"
 
     builder = ReportBuilder()

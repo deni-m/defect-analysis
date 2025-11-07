@@ -44,3 +44,49 @@ qa-bugs --config configs/example.config.yml --input data/jira_issues.csv --llm o
 ```
 
 The CSV headers will match the configured `fields_mapping` (e.g., `Created`, `Resolved`, `FixVersion`).
+
+## Testing
+
+Unit tests use `pytest`.
+
+Run the full suite (excluding optional live tests by default):
+
+```bash
+python -m pytest
+```
+
+Run a single test file:
+
+```bash
+python -m pytest tests/test_defect_age.py -q
+```
+
+### Live LLM test
+
+`tests/test_llm_live.py` is marked with `@pytest.mark.live` and performs a real Azure OpenAI request.
+It is skipped unless the following environment variables are set:
+
+* `AZURE_OPENAI_KEY`
+* `AZURE_OPENAI_ENDPOINT`
+* (optional) `AZURE_OPENAI_DEPLOYMENT` (defaults to `gpt-4o`)
+* (optional) `AZURE_OPENAI_API_VERSION` (defaults to `2024-05-01-preview`)
+
+Run only live tests:
+
+```bash
+python -m pytest -m live
+```
+
+Exclude live tests:
+
+```bash
+python -m pytest -m "not live"
+```
+
+### Adding tests
+
+Place new test files in `tests/` named `test_*.py`. Keep each test focused with minimal assertions covering:
+1. Happy path
+2. One edge case (e.g., empty dataframe)
+3. One configuration variance
+

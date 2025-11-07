@@ -102,10 +102,15 @@ class StatusBySeverity(Metric):
             yaxis=dict(title="Percent per Priority", range=[0, 100])
         )
 
+        # Build simplified aggregation for LLM context (only severity, status, count)
+        llm_summary = summary[['priority', 'status', 'count']].copy()
+        llm_summary.rename(columns={'priority': 'severity'}, inplace=True)
+
         tables = {
             "status_by_severity_raw": raw,
             "status_by_severity_summary": summary,
             "status_by_severity_pivot": pivot,
+            "status_by_severity_llm": llm_summary,  # Simplified for LLM
         }
         charts = {"status_by_severity": fig}
 
@@ -114,7 +119,13 @@ class StatusBySeverity(Metric):
         summary_text = (
             f"Relative stacked status distribution across priorities. Top priority '{top_priority}' has {top_total} issues." if top_priority else "No priorities"
         )
-        return MetricResult(self.id, tables=tables, charts=charts, summary=summary_text)
+        return MetricResult(
+            self.id,
+            tables=tables,
+            charts=charts,
+            summary=summary_text,
+            llm_tables=["status_by_severity_llm"]  # Only send simplified table to LLM
+        )
 
     def build_figure(self, result: MetricResult) -> str | None:
         chart_obj = result.charts.get("status_by_severity")

@@ -2,7 +2,7 @@ You are analyzing the Defect Age metric.
 
 Context JSON:
 ```
-{{context_json}}
+{{context}}
 ```
 
 Produce structured markdown with the following sections:

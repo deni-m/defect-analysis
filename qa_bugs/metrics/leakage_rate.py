@@ -165,10 +165,35 @@ class LeakageRate(Metric):
                     ],
                     textposition="outside",
                 )
+                # Dynamic upper y bound ensures threshold (5%) is visible with headroom
+                y_max = max(5, by_priority["leakage_percent"].max() * 1.15)
                 fig.update_layout(
                     margin=dict(t=50, b=20),
-                    yaxis=dict(title="leakage_percent", range=[0, max(5, by_priority["leakage_percent"].max() * 1.15)])
+                    yaxis=dict(title="leakage_percent", range=[0, y_max])
                 )
+                # Add thin horizontal threshold line at 5% (risk threshold)
+                threshold = 5.0
+                if y_max >= threshold:
+                    fig.add_shape(
+                        type="line",
+                        x0=-0.5,
+                        x1=len(by_priority["priority"]) - 0.5,
+                        y0=threshold,
+                        y1=threshold,
+                        line=dict(color="red", width=1, dash="solid"),
+                    )
+                    fig.add_annotation(
+                        x=len(by_priority["priority"]) - 0.5,
+                        y=threshold,
+                        text="5% threshold",
+                        showarrow=False,
+                        xanchor="right",
+                        yanchor="bottom",
+                        font=dict(color="red", size=10),
+                        bgcolor="rgba(255,255,255,0.6)",
+                        bordercolor="red",
+                        borderwidth=0,
+                    )
                 charts["leakage_by_priority"] = fig
 
         return MetricResult(

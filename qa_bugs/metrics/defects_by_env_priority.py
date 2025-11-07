@@ -45,7 +45,11 @@ class DefectsByEnvPriority(Metric):
         )
         tables = {"env_priority": tbl, "env_counts": env_counts}
         if env_order_upper is not None:
-            tables["env_order_upper"] = pd.Series(env_order_upper)
+            # Store as DataFrame (Series caused .to_dict(orient="records") TypeError in payload serialization)
+            tables["env_order_upper"] = pd.DataFrame({
+                "environment": env_order_upper,
+                "order_index": list(range(len(env_order_upper)))
+            })
         return MetricResult(
             metric_id=self.id,
             tables=tables,
@@ -58,8 +62,8 @@ class DefectsByEnvPriority(Metric):
             return ""
         env_order_upper = None
         env_order_tbl = result.tables.get("env_order_upper")
-        if env_order_tbl is not None and not env_order_tbl.empty:
-            env_order_upper = env_order_tbl.tolist()
+        if env_order_tbl is not None and not env_order_tbl.empty and "environment" in env_order_tbl.columns:
+            env_order_upper = env_order_tbl["environment"].tolist()
         # Build final order again (unknown first) for plotting if we have configured order
         category_order = None
         if env_order_upper is not None:
