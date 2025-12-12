@@ -34,14 +34,17 @@ metrics:
       rejected_statuses: ["Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX"]
     defects_by_env_priority:
       env_order: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"]
+    status_by_severity:
+      open_statuses: ["Funnel", "Analysis", "To Do", "In Progress", "Blocked / On Hold", "Ready for Production"]
+      closed_statuses: ["Done", "Cancelled"]
 
 llm:
   enabled: true
   prompts_dir: "qa_bugs/prompts"
   provider: azure
-  deployment: "gpt-4o"
+  deployment: "gpt-5-chat-2025-08-07"
   api_version: "2024-05-01-preview"
-  temperature: 0.2
+  temperature: 1
   max_tokens: 700
   debug: true  # enable structured LLM debug logging
   log_prompts: true  # persist prompt & response text files in run output directory

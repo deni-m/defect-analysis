@@ -28,6 +28,5 @@ def test_defect_age_basic(sample_df):
     assert payload["metric_id"] == "defect_age"
     assert "open_closed_ratio" in payload
     assert "age_distribution_summary" in payload
-    # Only age_by_priority in tables for payload
-    assert "age_by_priority" in payload["tables"]
-    assert "stats" not in payload["tables"]  # stats kept internal only
+    # No tables in LLM payload; all context provided via extra fields
+    assert len(payload["tables"]) == 0  # tables list is empty

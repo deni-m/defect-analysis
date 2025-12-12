@@ -1,45 +1,55 @@
-You are an expert QA Quality Analyst reviewing the Defects by Environment and Priority metric.
-Your goal is to produce a focused, insight-driven summary that reveals:
+You are an expert QA Quality Analyst.  
+Produce a concise, diagnostic analysis of the **Defects by Environment & Priority** metric using only the evidence in the CSV tables.
 
-* Which environments show elevated Critical/High defect density relative to their expected position in the release flow.
-* Where containment is weak (defects leaking to later environments).
-* How overall testing effectiveness and stability can be improved.
-
-###Instructions for reasoning
-
-1. Infer phase order from environment names (e.g., “dev,” “qa,” “uat,” “stage,” “perf,” “prod”).
-Earlier environments usually contain more defects by design; later environments should contain fewer and less severe defects.
-2. Classify environments automatically into three logical groups:
-Early discovery phase (before or during testing)
-Pre-release validation phase (staging, UAT, performance)
-Production or live phase
-3. Focus on relative concentration of Critical and High defects, not absolute counts.
-4. Highlight leakage if later environments have non-negligible Critical/High volumes.
-4a. When highlighting environments with high defect severity, quantify Critical/High share as a percentage of total defects in that environment (if data allows). Include only 1–3 key percentages for readability.
-5. Generate concise, actionable insights — not restatements of data.
-
-Use the information in context (CSV with computed metrics) for your analysis.
-
-###Context
-
+### Context (CSV)
 {{context}}
 
-###Output structure
+STRICT FORMAT (no extra sections, no extra text):
 
-##Summary
-≤55 words summarizing defect containment and stability. Include key numbers here.
+---
 
-##Risks
-2–3 concise bullets describing environment-specific QA or business risks
+## Summary
 
-##Root Causes
-2–3 short bullets identifying likely systemic or process causes
+- Maximum **2–3 sentences**.  
+- State the overall containment pattern across environments: early phases should show more defects; later phases should show fewer and lower-severity ones.  
+- Identify which environments have elevated **Critical/High** defect presence and highlight any unexpected severity in later environments (UAT, Stage, Perf, Prod).  
+- Keep sentences short and simple. Do not join multiple insights into a single long sentence.
+- Use plain, everyday language. Do not use abstract or formal terms like “persisting”, “containment stages”, “progressing beyond core QA stages”, etc.
+- Include one focused RCA based strictly on the observed environment pattern.  
+  - Do not attribute issues to a single phase unless the data clearly supports it.  
+  - Prefer generalized causes when several environments show elevated severity (e.g., broad gaps in early detection or inconsistent phase stability).  
+- Do not propose solutions or recommendations here.  
+- Do not copy raw counts unless needed to justify a clear pattern or threshold.
 
-##Actions
-Verb: actionable step (e.g., Investigate, Strengthen, Track)
+---
 
-##Style rules
-* Keep under 200 words total.
-* Analytical, professional tone.
-* Avoid raw numbers unless essential.
-* Emphasize early detection efficiency, leakage prevention, and environment health.
+## Recommendations
+
+- Provide **1–3 short, clear, plain-language recommendations** focused on *reviewing why* the environment severity pattern occurred.  
+- Do **not** use abstract terms (e.g., “controls”, “gating alignment”, “process adequacy”).  
+- Do **not** suggest specific test types unless directly supported by data.  
+- Use simple verbs such as **review**, **check**, **confirm**, **assess**.  
+- Recommendations must be easy to understand and tied directly to the containment pattern.
+
+### Allowed examples
+- “Review how defects in the leaking severity categories reached later environments.”  
+- “Check whether current phase-to-phase review steps are sufficient for environments with elevated severity.”  
+- “Confirm whether testing effort reflects the risk suggested by severity distribution.”
+
+### Not allowed
+- Abstract corporate language (“validate testing controls”, “align test gates”).  
+- Test-design assumptions (boundary tests, negative tests) unless explicitly supported by the CSV.  
+- Root-cause claims not visible in the data.
+
+---
+
+## Style & Guardrails
+
+- Use simple, diagnostic language; avoid vague verbs (“improve”, “optimize”).  
+- Prefer concrete verbs: **review**, **check**, **confirm**, **assess**, **examine**, **compare**.  
+- Bold important numbers and terms (**Critical**, **High**, **Prod**, etc.).  
+- Summary and Recommendations must be **bulleted lists**.  
+- No numbered lists.  
+- No invented metrics.  
+- Interpret — **not repeat** — CSV values.  
+- Avoid blaming a specific environment unless the data clearly isolates it as the outlier.

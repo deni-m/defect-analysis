@@ -149,10 +149,7 @@ class DefectAgeResult(MetricResult):
             v = self.extra.get(k)
             if v:
                 out[k] = v
-        # Only include age_by_priority table in payload
-        if "age_by_priority" in self.tables:
-            out["tables"] = {"age_by_priority": _df_to_records_json_safe(self.tables["age_by_priority"])}
-        else:
-            out["tables"] = {}
+        # No tables included in LLM payload; summary stats provided in extra fields
+        out["tables"] = {}
         return out
 

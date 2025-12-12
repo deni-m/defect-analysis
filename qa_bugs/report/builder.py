@@ -31,7 +31,7 @@ ul{padding-left:18px}
 </style></head><body>
 <h1>{{ title }}</h1>
 {% if summary_kpi_html %}{{ summary_kpi_html | safe }}{% endif %}
-{% if overall_html %}<div class='card'><h2>Overall Summary (LLM)</h2>{{ overall_html | safe }}</div>{% endif %}
+{% if overall_html %}<div class='card'>{{ overall_html | safe }}</div>{% endif %}
 {% for mid in metric_order %}
     {% if figures.get(mid) %}
     <div class='card'><h2>{{ display_names.get(mid, mid) }}</h2>{{ figures.get(mid) | safe }}{% if insights_html.get(mid) %}{{ insights_html.get(mid) | safe }}{% endif %}</div>
@@ -164,7 +164,9 @@ class ReportBuilder:
                 out = re.sub(r"\s{2,}", " ", out).strip()
                 return out
 
-            html_parts = ["<div class='insight'>", f"<h3>{heading}</h3>"]
+            html_parts = ["<div class='insight'>"]
+            if heading:
+                html_parts.append(f"<h3>{heading}</h3>")
             for sec in sections:
                 if sec["title"]:
                     html_parts.append(f"<h4>{_apply_inline_markdown(sec['title'])}</h4>")
@@ -379,7 +381,7 @@ class ReportBuilder:
                 fmt = _format_insight(txt, heading="Insight")
                 if fmt:
                     insights_html[mid] = fmt
-        overall_html = _format_insight(overall, heading="Overall Summary") if overall else ""
+        overall_html = _format_insight(overall, heading=None) if overall else ""
 
         # Reorder figures according to explicit metric_order if provided
         if metric_order:

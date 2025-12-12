@@ -40,5 +40,27 @@ class RejectionRate(Metric):
         )
 
     def build_figure(self, result: MetricResult) -> str | None:
-        # No figure for now; only KPI summary consumed by ReportBuilder
-        return None
+        """Create a simple rejection rate KPI display."""
+        rejection_summary = result.tables.get("rejection_summary")
+        if rejection_summary is None or rejection_summary.empty:
+            return None
+
+        row = rejection_summary.iloc[0]
+        rejected = int(row.get("rejected", 0))
+        total = int(row.get("total", 0))
+        pct = float(row.get("rejection_percent", 0.0))
+
+        # Create a simple KPI card display
+        html = f"""
+        <div style="display: flex; gap: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 5px;">
+            <div style="flex: 1; text-align: center; padding: 10px;">
+                <div style="font-size: 28px; font-weight: bold; color: #d32f2f;">{pct:.1f}%</div>
+                <div style="font-size: 12px; color: #666;">Rejection Rate</div>
+            </div>
+            <div style="flex: 1; text-align: center; padding: 10px;">
+                <div style="font-size: 28px; font-weight: bold; color: #1976d2;">{rejected}</div>
+                <div style="font-size: 12px; color: #666;">Rejected ({total} total)</div>
+            </div>
+        </div>
+        """
+        return html

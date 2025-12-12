@@ -62,7 +62,7 @@ def run(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if llm_enabled:
-        service = LLMService(llm_cfg, log_dir=str(out_dir))
+        service = LLMService(llm_cfg, full_config=cfg, log_dir=str(out_dir))
         for metric_id, res in results.items():
             insights[metric_id] = service.analyze_metric(metric_id, res.payload())
         # Summarize based on generated insight texts instead of raw metric payloads

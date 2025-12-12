@@ -1,4 +1,4 @@
-import os, time, traceback, re  # added re
+import os, time, re
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -45,7 +45,7 @@ class _LLMDebugEvent:
 
 
 class LLMService:
-    def __init__(self, config: dict, log_dir: str | None = None):
+    def __init__(self, config: dict, full_config: dict | None = None, log_dir: str | None = None):
         self.enabled = config.get("enabled", False)
         # Allow env var override for deployment name
         self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4o-mini")
@@ -60,6 +60,9 @@ class LLMService:
         self.table_row_limit = int(config.get("table_row_limit", 200))  # per table
         self.max_prompt_chars = int(config.get("max_prompt_chars", 120_000))  # safety bound under model token limit
         self.summary_table_row_limit = int(config.get("summary_table_row_limit", 40))  # for overall summary
+
+        # Store full config for dynamic prompt templating (e.g., status lists from metrics.params)
+        self.full_config = full_config or {}
 
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
         api_key = os.environ.get("AZURE_OPENAI_KEY")
@@ -91,7 +94,7 @@ class LLMService:
                 model=model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_completion_tokens=max_tokens,
             )
             latency = (time.time() - start) * 1000
             txt = resp.choices[0].message.content or ""
@@ -114,6 +117,31 @@ class LLMService:
             return False, None, f"{type(e).__name__}: {e}"
 
     # --- public API -------------------------------------------------------
+    def _apply_config_templates(self, prompt_template: str, metric_id: str) -> str:
+        """Apply config-based template substitutions to the prompt.
+
+        Supports placeholders like:
+        - {{open_statuses}}: comma-separated list of open statuses from config
+        - {{closed_statuses}}: comma-separated list of closed statuses from config
+        """
+        result = prompt_template
+        metrics_params = self.full_config.get("metrics", {}).get("params", {})
+        metric_params = metrics_params.get(metric_id, {})
+
+        if "open_statuses" in metric_params:
+            statuses = metric_params["open_statuses"]
+            if isinstance(statuses, list):
+                formatted = ", ".join(f'"{s}"' for s in statuses)
+                result = result.replace("{{open_statuses}}", formatted)
+
+        if "closed_statuses" in metric_params:
+            statuses = metric_params["closed_statuses"]
+            if isinstance(statuses, list):
+                formatted = ", ".join(f'"{s}"' for s in statuses)
+                result = result.replace("{{closed_statuses}}", formatted)
+
+        return result
+
     def analyze_metric(self, metric_id: str, payload: dict) -> str:
         if not self.enabled:
             return ""
@@ -121,9 +149,9 @@ class LLMService:
         trimmed_payload = self._trim_payload(payload, self.table_row_limit)
         # ALWAYS CSV
         context_csv = self._payload_to_csv(trimmed_payload)
-        # Simplified: always CSV, replace any known placeholder
+        # Apply config-based template substitutions, then data context
         full_prompt = (
-            prompt_template
+            self._apply_config_templates(prompt_template, metric_id)
             .replace("{{context}}", context_csv)
         )
         context = context_csv
@@ -155,27 +183,27 @@ class LLMService:
         """Summarize already generated metric insight texts instead of raw payloads.
 
         metric_texts: mapping metric_id -> analysis text (plain markdown or summary string).
-        We compress into a lightweight CSV-like block and inject into the same summary prompt
-        placeholder {{metrics_context_json}} (kept for compatibility).
+        We format as structured markdown with clear metric labels for better LLM comprehension.
         """
         if not self.enabled:
             return "LLM disabled"
         prompt_template = self.pm.load_summary_prompt()
-        # Build compact representation: each line metric_id,text (escaped commas/newlines)
+        # Build structured markdown representation with clear metric sections
         lines = []
         for mid, txt in metric_texts.items():
             if not txt:
                 continue
-            safe = txt.replace("\n", " ").replace(",", ";")
+            # Clean up the text: remove excessive newlines, normalize spacing
+            safe = txt.replace("\n\n", " | ").replace("\n", " ").strip()
             # truncate overly long per-metric text to keep total small
             if len(safe) > 2000:
                 safe = safe[:2000] + "..."
-            lines.append(f"{mid},{safe}")
-        context_block = "\n".join(lines)
+            # Format as: ## metric_name\ninsight_text
+            lines.append(f"## {mid}\n{safe}")
+        context_block = "\n\n".join(lines)
         full_prompt = (
             prompt_template
-            .replace("{{metrics_context_json}}", context_block)
-            .replace("{{metrics_context_csv}}", context_block)
+            .replace("{{metrics_context}}", context_block)            
         )
         if len(full_prompt) > self.max_prompt_chars:
             full_prompt = full_prompt[: self.max_prompt_chars]
@@ -221,19 +249,27 @@ class LLMService:
 
     # --- trimming helpers -------------------------------------------------
     def _trim_payload(self, payload: dict, row_limit: int) -> dict:
-        """Limit rows per table and annotate truncation for transparency."""
+        """Limit rows per table and annotate truncation for transparency.
+
+        Note: Do not add truncation markers for LLM-specific tables (they're already optimized).
+        """
         out = {
             "metric_id": payload.get("metric_id"),
             "summary": payload.get("summary"),
             "tables": {},
         }
         tables = payload.get("tables", {})
+        # List of table names that should not have truncation markers added
+        llm_optimized_tables = {"cumulative_daily", "cumulative_weekly", "cumulative_monthly", "status_by_severity_llm"}
+
         for name, rows in tables.items():
             if not isinstance(rows, list):
                 continue
             if len(rows) > row_limit:
                 trimmed = rows[:row_limit]
-                trimmed.append({"_truncated": True, "_original_rows": len(rows)})
+                # Only add truncation marker for non-LLM-optimized tables
+                if name not in llm_optimized_tables:
+                    trimmed.append({"_truncated": True, "_original_rows": len(rows)})
                 out["tables"][name] = trimmed
             else:
                 out["tables"][name] = rows
