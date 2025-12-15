@@ -28,12 +28,16 @@ class DefectAge(Metric):
         has_age = age_series.notna().any()
         closed_mask = d["resolved_at"].notna()
         closed_age_series = d.loc[closed_mask, "age_days"].dropna()
+        # Core KPI stats (all-time, not truncated)
         stats = {
             "count": int(d.shape[0]),
             "avg_age": float(age_series.mean()) if has_age else 0.0,
             "p50": float(age_series.median()) if has_age else 0.0,
             "p90": float(age_series.quantile(0.9)) if has_age else 0.0,
             "avg_age_closed": float(closed_age_series.mean()) if not closed_age_series.empty else None,
+            # Explicit open / closed counts so UIs can compute backlog KPIs
+            "open_count": int((d["resolved_at"].isna()).sum()),
+            "closed_count": int((d["resolved_at"].notna()).sum()),
         }
 
         # Per-priority aggregation
@@ -54,10 +58,6 @@ class DefectAge(Metric):
             by_prio[num_cols] = by_prio[num_cols].apply(lambda col: col.round(1))
         else:
             by_prio = pd.DataFrame(columns=["priority", "count", "avg_age", "p50", "p90", "max_age"])
-
-        # Open vs closed counts
-        open_count = int((d["resolved_at"].isna()).sum())
-        closed_count = int((d["resolved_at"].notna()).sum())
 
         # Build age bucket distribution summary
         buckets = [
@@ -89,7 +89,7 @@ class DefectAge(Metric):
         extra = {
             "data_date": pd.Timestamp.utcnow().date().isoformat(),
             "project": cfg.get("project") or cfg.get("__full_config__", {}).get("project"),
-            "open_closed_ratio": f"open={open_count}, closed={closed_count}",
+            "open_closed_ratio": f"open={stats['open_count']}, closed={stats['closed_count']}",
             "age_distribution_summary": age_distribution_summary,
             "sla_targets": sla_targets,
         }

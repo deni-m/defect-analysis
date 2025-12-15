@@ -7,6 +7,7 @@ from typing import Optional, Union, Dict
 import pandas as pd
 
 from qa_bugs.services.models import AnalysisConfig, AnalysisResult
+from qa_bugs.services.kpi_calculator import calculate_summary_kpis
 from qa_bugs.ingest.normalizer import Normalizer
 from qa_bugs.ingest.filters import apply_filters
 from qa_bugs.metrics import METRICS
@@ -92,7 +93,12 @@ class AnalysisService:
                 log_dir=log_dir
             )
 
-        # Step 5: Build result with metadata
+        # Step 5: Calculate summary KPIs from metrics
+        summary_kpis = calculate_summary_kpis(
+            AnalysisResult(metrics_results=metrics_results)
+        )
+
+        # Step 6: Build result with metadata
         metadata = {
             "timestamp": datetime.now().isoformat(),
             "total_records": len(df),
@@ -105,6 +111,7 @@ class AnalysisService:
 
         return AnalysisResult(
             metrics_results=metrics_results,
+            summary_kpis=summary_kpis,
             metric_insights=metric_insights,
             overall_summary=overall_summary,
             metadata=metadata

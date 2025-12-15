@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from qa_bugs.metrics.base import MetricResult
+
+if TYPE_CHECKING:
+    from qa_bugs.services.kpi_calculator import SummaryKPIs
 
 
 @dataclass
@@ -121,18 +124,9 @@ class AnalysisConfig:
 
         This is useful for passing to legacy code that expects the old format.
         """
-        return {
-            "project": {
-                "timezone": self.project.timezone,
-                **({"name": self.project.name} if self.project.name else {})
-            },
-            "fields_mapping": self.fields_mapping,
-            "metrics": {
-                "enabled": self.enabled_metrics,
-                "params": self.metric_params
-            },
-            "exclude_statuses": self.exclude_statuses,
-            "llm": {
+        llm_dict = {}
+        if self.llm is not None:
+            llm_dict = {
                 "enabled": self.llm.enabled,
                 "prompts_dir": self.llm.prompts_dir,
                 "provider": self.llm.provider,
@@ -148,6 +142,21 @@ class AnalysisConfig:
                 "max_prompt_chars": self.llm.max_prompt_chars,
                 "context_format": self.llm.context_format
             }
+        else:
+            llm_dict = {"enabled": False}
+        
+        return {
+            "project": {
+                "timezone": self.project.timezone,
+                **({"name": self.project.name} if self.project.name else {})
+            },
+            "fields_mapping": self.fields_mapping,
+            "metrics": {
+                "enabled": self.enabled_metrics,
+                "params": self.metric_params
+            },
+            "exclude_statuses": self.exclude_statuses,
+            "llm": llm_dict
         }
 
 
@@ -161,6 +170,9 @@ class AnalysisResult:
     """
     # Metric results keyed by metric ID
     metrics_results: Dict[str, MetricResult]
+
+    # Pre-computed summary KPIs (calculated from metrics_results)
+    summary_kpis: Optional[SummaryKPIs] = None
 
     # LLM-generated insights per metric (if enabled)
     metric_insights: Dict[str, str] = field(default_factory=dict)

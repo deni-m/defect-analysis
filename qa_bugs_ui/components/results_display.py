@@ -1,7 +1,155 @@
 """Results display components for Streamlit UI."""
 import streamlit as st
+from typing import Optional
 from qa_bugs.services.models import AnalysisResult, AnalysisConfig
+from qa_bugs.services.kpi_calculator import SummaryKPIs
 from qa_bugs.metrics import METRICS
+
+
+def _display_summary_kpis(kpis: SummaryKPIs):
+    """
+    Display summary KPIs panel from pre-computed values.
+
+    Args:
+        kpis: Pre-computed SummaryKPIs from AnalysisResult
+    """
+    if kpis.total_defects is None:
+        return
+
+    # Helper functions
+    def fmt_days(v: Optional[float]) -> str:
+        if v is None:
+            return "-"
+        try:
+            return f"{v:.1f}d".replace(".0d", "d")
+        except Exception:
+            return "-"
+
+    def pct_fmt(v: Optional[float]) -> str:
+        if v is None:
+            return "-"
+        try:
+            s = f"{v:.1f}".rstrip("0").rstrip(".")
+            return f"{s}%"
+        except Exception:
+            return "-"
+
+    # Format display values
+    open_count = None
+    if kpis.closed_defects is not None and kpis.total_defects:
+        open_count = kpis.total_defects - kpis.closed_defects
+
+    open_block = "-"
+    if kpis.open_pct is not None and open_count is not None:
+        open_block = f"{pct_fmt(kpis.open_pct)} ({open_count} bugs)"
+
+    leakage_block = "-"
+    if kpis.leakage_pct is not None:
+        leak_pct_disp = pct_fmt(kpis.leakage_pct)
+        if kpis.leaked_count is not None:
+            leakage_block = f"{leak_pct_disp} ({kpis.leaked_count} leaked)"
+        else:
+            leakage_block = f"{leak_pct_disp}"
+
+    rejection_block = "-"
+    if kpis.rejection_pct is not None:
+        rej_pct_disp = pct_fmt(kpis.rejection_pct)
+        if kpis.rejected_count is not None:
+            rejection_block = f"{rej_pct_disp} ({kpis.rejected_count} rejected)"
+        else:
+            rejection_block = f"{rej_pct_disp}"
+
+    # Determine risk classes
+    leakage_class = ""
+    if kpis.leakage_pct is not None:
+        if kpis.leakage_pct > 10:
+            leakage_class = "risk-high"
+        elif kpis.leakage_pct > 5:
+            leakage_class = "risk-warn"
+        else:
+            leakage_class = "risk-ok"
+
+    rejection_class = ""
+    if kpis.rejection_pct is not None:
+        if kpis.rejection_pct > 20:
+            rejection_class = "risk-high"
+        elif kpis.rejection_pct > 10:
+            rejection_class = "risk-warn"
+        else:
+            rejection_class = "risk-ok"
+
+    # Create HTML for KPI panel
+    kpi_html = f"""
+    <style>
+        .kpi-grid {{
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 0 0 20px 0;
+        }}
+        .kpi-item {{
+            flex: 1 1 150px;
+            background: #f1f5f9;
+            border-radius: 10px;
+            padding: 12px;
+            min-width: 120px;
+        }}
+        .kpi-item.risk-warn {{
+            background: #fff4e6;
+            border: 1px solid #ffb347;
+        }}
+        .kpi-item.risk-high {{
+            background: #ffe5e5;
+            border: 1px solid #ff6b6b;
+        }}
+        .kpi-item.risk-ok {{
+            background: #e6f9ed;
+            border: 1px solid #34c759;
+        }}
+        .kpi-label {{
+            display: block;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #334155;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }}
+        .kpi-value {{
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #0f172a;
+        }}
+    </style>
+    <div class="kpi-grid">
+        <div class="kpi-item">
+            <span class="kpi-label">Total Defects</span>
+            <div class="kpi-value">{kpis.total_defects:,}</div>
+        </div>
+        <div class="kpi-item">
+            <span class="kpi-label">Open</span>
+            <div class="kpi-value">{open_block}</div>
+        </div>
+        <div class="kpi-item {leakage_class}">
+            <span class="kpi-label">Leakage</span>
+            <div class="kpi-value">{leakage_block}</div>
+        </div>
+        <div class="kpi-item {rejection_class}">
+            <span class="kpi-label">Rejection</span>
+            <div class="kpi-value">{rejection_block}</div>
+        </div>
+        <div class="kpi-item">
+            <span class="kpi-label">Avg Age</span>
+            <div class="kpi-value">{fmt_days(kpis.avg_age_all)}</div>
+        </div>
+        <div class="kpi-item">
+            <span class="kpi-label">Avg Closed Age</span>
+            <div class="kpi-value">{fmt_days(kpis.avg_age_closed)}</div>
+        </div>
+    </div>
+    """
+
+    st.markdown(kpi_html, unsafe_allow_html=True)
 
 
 def display_results(result: AnalysisResult, config: AnalysisConfig):
@@ -12,21 +160,14 @@ def display_results(result: AnalysisResult, config: AnalysisConfig):
         result: AnalysisResult from analysis service
         config: AnalysisConfig used for analysis
     """
-    st.header("📊 Analysis Results")
-
-    # Display metadata
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Records", f"{result.metadata['total_records']:,}")
-    with col2:
-        st.metric("Filtered Records", f"{result.metadata['filtered_records']:,}")
-    with col3:
-        st.metric("Metrics Computed", len(result.metrics_results))
-
     # Display overall summary if available
     if result.overall_summary:
         st.subheader("🤖 AI Summary")
         with st.container(border=True):
+            # Display pre-computed summary KPIs inside AI Summary
+            if result.summary_kpis:
+                _display_summary_kpis(result.summary_kpis)
+
             st.markdown(result.overall_summary)
 
     # Display each metric
