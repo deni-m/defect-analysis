@@ -78,6 +78,19 @@ class DefectsByEnvPriority(Metric):
         if category_order is not None:
             tbl["environment"] = pd.Categorical(tbl["environment"], categories=category_order, ordered=True)
             tbl = tbl.sort_values("environment")
+        # Priority color scheme (urgent to low urgency)
+        priority_colors = {
+            "Critical": "#c0392b",    # Dark red
+            "Blocker": "#c0392b",     # Dark red
+            "High": "#e74c3c",        # Red
+            "Medium": "#f39c12",      # Orange
+            "Low": "#3498db",         # Blue
+            "Minor": "#3498db",       # Blue
+            "Trivial": "#95a5a6",     # Gray
+            "TBD": "#7f8c8d",         # Dark gray
+            "Undefined": "#bdc3c7",   # Light gray
+        }
+
         fig = px.bar(
             tbl,
             x="environment",
@@ -86,6 +99,7 @@ class DefectsByEnvPriority(Metric):
             barmode="stack",
             title="Defects by Environment (stacked by Priority)",
             category_orders={"environment": category_order} if category_order is not None else None,
+            color_discrete_map=priority_colors,
         )
-        fig.update_layout(margin=dict(l=10, r=10, t=40, b=10), height=350)
+        fig.update_layout(margin=dict(l=10, r=10, t=40, b=50), height=350)
         return fig.to_html(include_plotlyjs=False, full_html=False)

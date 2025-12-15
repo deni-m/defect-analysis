@@ -9,6 +9,9 @@ __pycache__/
 # Local environment variables (contains secrets)
 .env
 
+# Streamlit secrets (never commit!)
+.streamlit/secrets.toml
+
 # Optional: virtual environment folders (commented; uncomment if desired)
 # .venv/
 # venv/

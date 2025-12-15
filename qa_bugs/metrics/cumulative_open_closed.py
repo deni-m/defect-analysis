@@ -142,16 +142,16 @@ class CumulativeOpenClosed(Metric):
             margin=dict(l=50, r=50, t=50, b=50)
         )
 
-        # Combine both charts in a row using HTML
-        html1 = fig1.to_html(include_plotlyjs=False, full_html=False)
-        html2 = fig2.to_html(include_plotlyjs=False, full_html=False)
+        # Combine both charts vertically using HTML (hide modebar to prevent title overlap)
+        html1 = fig1.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False})
+        html2 = fig2.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False})
 
         combined_html = f"""
-        <div style="display: flex; gap: 20px; width: 100%;">
-            <div style="flex: 1; min-width: 0;">
+        <div style="display: flex; flex-direction: column; gap: 20px; width: 100%;">
+            <div style="width: 100%;">
                 {html1}
             </div>
-            <div style="flex: 1; min-width: 0;">
+            <div style="width: 100%;">
                 {html2}
             </div>
         </div>

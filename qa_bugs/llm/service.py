@@ -64,13 +64,14 @@ class LLMService:
         # Store full config for dynamic prompt templating (e.g., status lists from metrics.params)
         self.full_config = full_config or {}
 
-        endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+        # Read endpoint from config first, fall back to environment variable
+        self.endpoint = config.get("endpoint") or os.environ.get("AZURE_OPENAI_ENDPOINT")
         api_key = os.environ.get("AZURE_OPENAI_KEY")
 
         self.client = AzureOpenAI(
             api_key=api_key,
             api_version=self.api_version,
-            azure_endpoint=endpoint,
+            azure_endpoint=self.endpoint,
         )
         self.pm = PromptManager(self.prompts_dir)
         if self._log_dir:
@@ -101,7 +102,7 @@ class LLMService:
             self._log(_LLMDebugEvent(
                 phase="chat", ok=True, latency_ms=latency,
                 prompt_chars=len(prompt_text), response_chars=len(txt),
-                model=model, api_version=self.api_version, endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"), metric_id=metric_id
+                model=model, api_version=self.api_version, endpoint=self.endpoint, metric_id=metric_id
             ))
             self._maybe_persist(metric_id or "unknown", prompt_text, txt, error=None)
             return True, txt, None
@@ -111,7 +112,7 @@ class LLMService:
                 phase="chat", ok=False, latency_ms=latency,
                 error_type=type(e).__name__, error_message=str(e),
                 prompt_chars=len(prompt_text), model=model,
-                api_version=self.api_version, endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"), metric_id=metric_id
+                api_version=self.api_version, endpoint=self.endpoint, metric_id=metric_id
             ))
             self._maybe_persist(metric_id or "unknown", prompt_text, None, error=f"{type(e).__name__}: {e}")
             return False, None, f"{type(e).__name__}: {e}"

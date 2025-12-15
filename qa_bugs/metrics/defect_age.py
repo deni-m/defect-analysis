@@ -113,12 +113,24 @@ class DefectAge(Metric):
         if (dist_tbl is None or dist_tbl.empty) and "defect_age" in result.tables:
             dist_tbl = result.tables.get("defect_age")
         if dist_tbl is not None and not dist_tbl.empty and "age_days" in dist_tbl.columns:
-            fig = px.histogram(dist_tbl, x="age_days", nbins=20, title="Defect Age Distribution (days)")
+            fig = px.histogram(
+                dist_tbl,
+                x="age_days",
+                nbins=20,
+                title="Defect Age Distribution (days)",
+                color_discrete_sequence=["#3498db"]  # Nice blue instead of black
+            )
             return fig.to_html(include_plotlyjs=False, full_html=False)
         # Fallback: use age_by_priority (bar of avg_age) but keep title consistent
         by_prio = result.tables.get("age_by_priority")
         if by_prio is not None and not by_prio.empty and {"priority", "avg_age"}.issubset(by_prio.columns):
-            fig = px.bar(by_prio, x="priority", y="avg_age", title="Defect Age Distribution (days)")
+            fig = px.bar(
+                by_prio,
+                x="priority",
+                y="avg_age",
+                title="Defect Age Distribution (days)",
+                color_discrete_sequence=["#3498db"]  # Nice blue
+            )
             return fig.to_html(include_plotlyjs=False, full_html=False)
         return None
 

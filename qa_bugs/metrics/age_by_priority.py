@@ -30,5 +30,12 @@ class AgeByPriority(Metric):
         tbl = result.tables.get("age_by_priority")
         if tbl is None or tbl.empty or {"priority", "avg_age"}.issubset(tbl.columns) is False:
             return None
-        fig = px.bar(tbl, x="priority", y="avg_age", title="Average Age by Priority")
+        fig = px.bar(
+            tbl,
+            x="priority",
+            y="avg_age",
+            title="Average Age by Priority (days)",
+            color_discrete_sequence=["#5470C6"]  # Blue color
+        )
+        fig.update_layout(yaxis_title="avg_age (days)")
         return fig.to_html(include_plotlyjs=False, full_html=False)

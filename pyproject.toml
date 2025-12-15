@@ -20,7 +20,11 @@ dependencies = [
   # Browser automation (optional). If you don't need automation, you can remove these.
   "selenium>=4.23",
   "webdriver-manager>=4.0",
+  # Web UI and storage
+  "streamlit>=1.31.0",
+  "azure-storage-blob>=12.19.0",
+  "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
-qa-bugs = "qa_bugs.cli.cli:app"
+qa-bugs = "qa_bugs_cli.cli:app"

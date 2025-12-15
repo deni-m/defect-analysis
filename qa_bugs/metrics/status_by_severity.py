@@ -68,14 +68,39 @@ class StatusBySeverity(Metric):
             lambda r: f"{r['percent_priority']:.0f}% ({int(r['count'])})", axis=1
         )
 
-        # Define custom colors for statuses (edit as needed)
+        # Define custom colors for statuses - comprehensive palette
         status_colors = {
+            # Completed states (green shades)
             "Done": "#2ca02c",
-            "Cancelled": "#95A5A6",
-            "Accepted": "#1f77b4",
+            "Resolved": "#27ae60",
+            "Closed": "#1e8449",
+
+            # In progress states (blue/purple shades)
+            "In Progress": "#3498db",
+            "Implementing": "#2980b9",
+            "IN QA": "#8e44ad",
+            "Code Review": "#9b59b6",
+            "Ready for QA": "#5dade2",
+
+            # Waiting states (orange shades)
+            "To Do": "#e67e22",
             "Open": "#ff7f0e",
-            "Unknown": "#cccccc",
-            # Add more status-color pairs as needed
+            "Funnel": "#f39c12",
+            "Analysis": "#d68910",
+            "Ready for Production": "#dc7633",
+            "Ready for Acceptance": "#ca6f1e",
+
+            # On hold/blocked states (amber/yellow)
+            "Blocked / On Hold": "#f1c40f",
+            "On Hold": "#f4d03f",
+
+            # Cancelled/rejected states (gray)
+            "Cancelled": "#95a5a6",
+            "Rejected": "#7f8c8d",
+
+            # Other
+            "Accepted": "#16a085",
+            "Unknown": "#bdc3c7",
         }
 
         fig = px.bar(

@@ -42,6 +42,7 @@ llm:
   enabled: true
   prompts_dir: "qa_bugs/prompts"
   provider: azure
+  endpoint: "https://ai-proxy.lab.epam.com"  # ← Your EPAM proxy URL
   deployment: "gpt-5-chat-2025-08-07"
   api_version: "2024-05-01-preview"
   temperature: 1

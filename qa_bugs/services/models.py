@@ -1,0 +1,177 @@
+"""Data models for analysis service layer."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any
+from qa_bugs.metrics.base import MetricResult
+
+
+@dataclass
+class LLMConfig:
+    """Configuration for LLM integration."""
+    enabled: bool = True
+    prompts_dir: str = "qa_bugs/prompts"
+    provider: str = "azure"
+    endpoint: Optional[str] = None
+    deployment: str = "gpt-4o-mini"
+    api_version: str = "2024-05-01-preview"
+    temperature: float = 1.0
+    max_tokens: int = 700
+    debug: bool = False
+    log_prompts: bool = False
+    table_row_limit: int = 200
+    summary_table_row_limit: int = 40
+    max_prompt_chars: int = 120000
+    context_format: str = "csv"
+
+
+@dataclass
+class ProjectConfig:
+    """Project-level configuration."""
+    timezone: str = "UTC"
+    name: Optional[str] = None
+
+
+@dataclass
+class AnalysisConfig:
+    """
+    Complete analysis configuration.
+
+    This can be constructed from YAML config dict or created programmatically.
+    Serves as the input contract for AnalysisService.
+    """
+    # Project settings
+    project: ProjectConfig = field(default_factory=ProjectConfig)
+
+    # Field mappings from CSV to canonical schema
+    fields_mapping: Dict[str, str] = field(default_factory=dict)
+
+    # Metrics configuration
+    enabled_metrics: List[str] = field(default_factory=list)
+    metric_params: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    # Filters
+    exclude_statuses: List[str] = field(default_factory=list)
+
+    # LLM configuration
+    llm: LLMConfig = field(default_factory=LLMConfig)
+
+    @classmethod
+    def from_yaml_dict(cls, config_dict: Dict[str, Any]) -> AnalysisConfig:
+        """
+        Create AnalysisConfig from YAML config dictionary.
+
+        Args:
+            config_dict: Dictionary loaded from YAML config file
+
+        Returns:
+            AnalysisConfig instance
+        """
+        # Extract project config
+        project_dict = config_dict.get("project", {})
+        project = ProjectConfig(
+            timezone=project_dict.get("timezone", "UTC"),
+            name=project_dict.get("name")
+        )
+
+        # Extract fields mapping
+        fields_mapping = config_dict.get("fields_mapping", {})
+
+        # Extract metrics configuration
+        metrics_config = config_dict.get("metrics", {})
+        enabled_metrics = metrics_config.get("enabled", [])
+        metric_params = metrics_config.get("params", {})
+
+        # Extract exclude_statuses (might be in common params or root level)
+        exclude_statuses = config_dict.get("exclude_statuses", [])
+        if not exclude_statuses and "common" in metric_params:
+            exclude_statuses = metric_params.get("common", {}).get("exclude_statuses", [])
+
+        # Extract LLM config
+        llm_dict = config_dict.get("llm", {})
+        llm_config = LLMConfig(
+            enabled=llm_dict.get("enabled", True),
+            prompts_dir=llm_dict.get("prompts_dir", "qa_bugs/prompts"),
+            provider=llm_dict.get("provider", "azure"),
+            endpoint=llm_dict.get("endpoint"),
+            deployment=llm_dict.get("deployment", "gpt-4o-mini"),
+            api_version=llm_dict.get("api_version", "2024-05-01-preview"),
+            temperature=llm_dict.get("temperature", 1.0),
+            max_tokens=llm_dict.get("max_tokens", 700),
+            debug=llm_dict.get("debug", False),
+            log_prompts=llm_dict.get("log_prompts", False),
+            table_row_limit=llm_dict.get("table_row_limit", 200),
+            summary_table_row_limit=llm_dict.get("summary_table_row_limit", 40),
+            max_prompt_chars=llm_dict.get("max_prompt_chars", 120000),
+            context_format=llm_dict.get("context_format", "csv")
+        )
+
+        return cls(
+            project=project,
+            fields_mapping=fields_mapping,
+            enabled_metrics=enabled_metrics,
+            metric_params=metric_params,
+            exclude_statuses=exclude_statuses,
+            llm=llm_config
+        )
+
+    def to_legacy_dict(self) -> Dict[str, Any]:
+        """
+        Convert back to legacy YAML dict format for backward compatibility.
+
+        This is useful for passing to legacy code that expects the old format.
+        """
+        return {
+            "project": {
+                "timezone": self.project.timezone,
+                **({"name": self.project.name} if self.project.name else {})
+            },
+            "fields_mapping": self.fields_mapping,
+            "metrics": {
+                "enabled": self.enabled_metrics,
+                "params": self.metric_params
+            },
+            "exclude_statuses": self.exclude_statuses,
+            "llm": {
+                "enabled": self.llm.enabled,
+                "prompts_dir": self.llm.prompts_dir,
+                "provider": self.llm.provider,
+                "endpoint": self.llm.endpoint,
+                "deployment": self.llm.deployment,
+                "api_version": self.llm.api_version,
+                "temperature": self.llm.temperature,
+                "max_tokens": self.llm.max_tokens,
+                "debug": self.llm.debug,
+                "log_prompts": self.llm.log_prompts,
+                "table_row_limit": self.llm.table_row_limit,
+                "summary_table_row_limit": self.llm.summary_table_row_limit,
+                "max_prompt_chars": self.llm.max_prompt_chars,
+                "context_format": self.llm.context_format
+            }
+        }
+
+
+@dataclass
+class AnalysisResult:
+    """
+    Pure data output from analysis - UI agnostic.
+
+    Contains all metric results, LLM insights, and metadata.
+    Different UIs (CLI HTML, Streamlit, API) can render this however they want.
+    """
+    # Metric results keyed by metric ID
+    metrics_results: Dict[str, MetricResult]
+
+    # LLM-generated insights per metric (if enabled)
+    metric_insights: Dict[str, str] = field(default_factory=dict)
+
+    # Overall LLM summary across all metrics (if enabled)
+    overall_summary: str = ""
+
+    # Metadata about the analysis run
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def metric_ids(self) -> List[str]:
+        """Get list of metric IDs in order."""
+        return list(self.metrics_results.keys())

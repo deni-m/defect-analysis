@@ -156,6 +156,7 @@ class LeakageRate(Metric):
                     x="priority",
                     y="leakage_percent",
                     title="Leakage % by Priority",
+                    color_discrete_sequence=["#5470C6"],  # Blue color
                 )
                 # Show percentage and absolute number and total atop each bar
                 fig.update_traces(
@@ -168,8 +169,9 @@ class LeakageRate(Metric):
                 # Dynamic upper y bound ensures threshold (5%) is visible with headroom
                 y_max = max(5, by_priority["leakage_percent"].max() * 1.15)
                 fig.update_layout(
-                    margin=dict(t=50, b=20),
-                    yaxis=dict(title="leakage_percent", range=[0, y_max])
+                    margin=dict(t=50, b=50),
+                    yaxis=dict(title="leakage_percent", range=[0, y_max]),
+                    height=350
                 )
                 # Add thin horizontal threshold line at 5% (risk threshold)
                 threshold = 5.0
@@ -204,12 +206,40 @@ class LeakageRate(Metric):
         )
 
     def build_figure(self, result: MetricResult) -> str | None:
-        """Return bar chart HTML; data table handled by ReportBuilder."""
+        """Return KPI panel + bar chart HTML; data table handled by ReportBuilder."""
+        # Build KPI panel from overall table
+        overall = result.tables.get("leakage_overall")
+        kpi_html = ""
+        if overall is not None and not overall.empty:
+            row = overall.iloc[0]
+            rate = row.get("rate_percent", row.get("leakage_percent", 0))
+            leaked = int(row.get("leaked", row.get("leaked_count", 0)))
+            caught = int(row.get("caught", row.get("not_leaked_count", 0)))
+            total = int(row.get("total", row.get("total_considered", 0)))
+
+            def _pct_disp(v):
+                try:
+                    s = f"{float(v):.1f}".rstrip("0").rstrip(".")
+                    return s
+                except Exception:
+                    return str(v)
+
+            kpi_html = (
+                "<div class='kpi'>"
+                f"<div class='item'><b>LEAKAGE</b><div>{_pct_disp(rate)}%</div></div>"
+                f"<div class='item'><b>LEAKED</b><div>{leaked}</div></div>"
+                f"<div class='item'><b>CAUGHT</b><div>{caught}</div></div>"
+                f"<div class='item'><b>TOTAL</b><div>{total}</div></div>"
+                "</div>"
+            )
+
+        # Build chart
         chart_obj = result.charts.get("leakage_by_priority")
+        chart_html = ""
         if chart_obj is None:
             by_priority = result.tables.get("leakage_by_priority")
             if by_priority is None or by_priority.empty:
-                return None
+                return kpi_html if kpi_html else None
             import plotly.express as px
             y_col = None
             for cand in ("leakage_percent", "rate_percent"):
@@ -217,13 +247,24 @@ class LeakageRate(Metric):
                     y_col = cand
                     break
             if y_col is None:
-                return None
+                return kpi_html if kpi_html else None
             plot_df = by_priority.copy()
             if "priority" in plot_df.columns:
                 plot_df["priority"] = plot_df["priority"].astype(object).fillna("TBD")
-            fig = px.bar(plot_df, x="priority", y=y_col, title="Leakage % by Priority")
-            return fig.to_html(include_plotlyjs=False, full_html=False)
-        try:
-            return chart_obj.to_html(include_plotlyjs=False, full_html=False)
-        except Exception:
-            return None
+            fig = px.bar(
+                plot_df,
+                x="priority",
+                y=y_col,
+                title="Leakage % by Priority",
+                color_discrete_sequence=["#5470C6"]  # Blue color
+            )
+            fig.update_layout(margin=dict(t=50, b=50), height=350)
+            chart_html = fig.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False})
+        else:
+            try:
+                chart_html = chart_obj.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False})
+            except Exception:
+                chart_html = ""
+
+        # Combine KPI panel and chart
+        return kpi_html + chart_html if (kpi_html or chart_html) else None
