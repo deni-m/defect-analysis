@@ -10,6 +10,13 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class AutoMappingConfig:
+    """Configuration for automatic field mapping."""
+    enabled: bool = False
+    sample_rows: int = 5
+
+
+@dataclass
 class LLMConfig:
     """Configuration for LLM integration."""
     enabled: bool = True
@@ -49,6 +56,9 @@ class AnalysisConfig:
     # Field mappings from CSV to canonical schema
     fields_mapping: Dict[str, str] = field(default_factory=dict)
 
+    # Automatic field mapping configuration
+    auto_mapping: AutoMappingConfig = field(default_factory=AutoMappingConfig)
+
     # Metrics configuration
     enabled_metrics: List[str] = field(default_factory=list)
     metric_params: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -79,6 +89,13 @@ class AnalysisConfig:
 
         # Extract fields mapping
         fields_mapping = config_dict.get("fields_mapping", {})
+
+        # Extract auto_mapping config
+        auto_mapping_dict = config_dict.get("auto_mapping", {})
+        auto_mapping = AutoMappingConfig(
+            enabled=auto_mapping_dict.get("enabled", False),
+            sample_rows=auto_mapping_dict.get("sample_rows", 5)
+        )
 
         # Extract metrics configuration
         metrics_config = config_dict.get("metrics", {})
@@ -112,6 +129,7 @@ class AnalysisConfig:
         return cls(
             project=project,
             fields_mapping=fields_mapping,
+            auto_mapping=auto_mapping,
             enabled_metrics=enabled_metrics,
             metric_params=metric_params,
             exclude_statuses=exclude_statuses,

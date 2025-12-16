@@ -90,3 +90,63 @@ Place new test files in `tests/` named `test_*.py`. Keep each test focused with 
 2. One edge case (e.g., empty dataframe)
 3. One configuration variance
 
+## Debugging & Logging
+
+### Log Files
+
+**Automatic file logging is now enabled by default:**
+
+**CLI runs:**
+- Logs saved to: `output/run_YYYYMMDD_HHMM/qa_bugs.log`
+- Includes all field mapping, analysis, and LLM activity
+- DEBUG level details in file, INFO level in console
+
+**UI runs:**
+- Field mapping: `output/ui_session_YYYYMMDD_HHMMSS/qa_bugs_ui.log`
+- Analysis: `output/ui_run_YYYYMMDD_HHMMSS/qa_bugs_ui.log`
+- Includes all activity at DEBUG level
+
+**LLM prompt/response files (when `log_prompts: true`):**
+- Saved in same output directory as logs
+- Format: `prompt_{metric_id}_{timestamp}.txt` and `response_{metric_id}_{timestamp}.txt`
+
+### Enabling Detailed Logs in Code
+
+For scripts or notebooks, configure logging manually:
+
+```python
+import logging
+
+# For detailed debugging (includes fuzzy match scores, LLM responses)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# For high-level progress tracking
+logging.basicConfig(level=logging.INFO)
+```
+
+### Key Log Messages
+
+**Field Mapping Detection:**
+- `Auto-detecting field mapping for N columns` - Detection starting
+- `LLM service is enabled` or `using fuzzy matching only` - Detection method selected
+- `LLM prompt:` / `LLM response:` - DEBUG level shows full LLM interaction
+- `Fuzzy match: 'key' -> 'Issue ID' (score: 0.75)` - DEBUG level match scores
+- `LLM detection successful` or `Falling back to fuzzy matching` - Result status
+- `validation: valid=True, errors=0, warnings=2` - Validation summary
+
+**When to Use:**
+- Debugging why certain CSV columns aren't detected
+- Understanding LLM vs fuzzy matching decisions
+- Reviewing actual LLM prompts and responses for troubleshooting
+- Troubleshooting missing required fields
+- Analyzing low similarity scores in fuzzy matching
+
+See `demo_field_mapper_logging.py` for a working example.
+
+## Documentation
+
+- **Auto Field Mapping**: See [docs/AUTO_MAPPING.md](docs/AUTO_MAPPING.md) for detailed guide on automatic CSV field detection
+- **Streamlit Deployment**: See [STREAMLIT_DEPLOYMENT.md](STREAMLIT_DEPLOYMENT.md) for UI deployment instructions

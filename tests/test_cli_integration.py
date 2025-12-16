@@ -22,7 +22,7 @@ def test_cli_generates_report(tmp_path, metrics):
     cfg_path = tmp_path / "config.yml"
     cfg_path.write_text(config_override, encoding="utf-8")
 
-    cmd = ["python", "-m", "qa_bugs_cli.cli", "--config", str(cfg_path), "--input", str(csv_path), "--llm", "off"]
+    cmd = ["python", "-m", "qa_bugs.cli.cli", "--config", str(cfg_path), "--input", str(csv_path), "--llm", "off"]
     subprocess.run(cmd, check=True)
 
     out_dir = Path("output")
@@ -86,7 +86,7 @@ llm:
     cfg_path.write_text(config_yaml, encoding="utf-8")
 
     # Run CLI
-    cmd = ["python", "-m", "qa_bugs_cli.cli", "--config", str(cfg_path), "--input", str(csv_path), "--llm", "off"]
+    cmd = ["python", "-m", "qa_bugs.cli.cli", "--config", str(cfg_path), "--input", str(csv_path), "--llm", "off"]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
     # Verify output messages (checkmark may have encoding issues, so check the text)

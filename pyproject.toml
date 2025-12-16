@@ -27,4 +27,10 @@ dependencies = [
 ]
 
 [project.scripts]
-qa-bugs = "qa_bugs_cli.cli:app"
+qa-bugs = "qa_bugs.cli.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,6 +1,8 @@
 project:
   timezone: "Europe/Kyiv"
 
+# Field mapping from CSV columns to canonical field names
+# Can be detected automatically if auto_mapping is enabled
 fields_mapping:
   key: "Key"
   # Adjusted to match sample CSV headers ("Created" / "Resolved") instead of Jira export names
@@ -10,7 +12,21 @@ fields_mapping:
   priority: "Priority"
   fix_version: "FixVersions"
   environment: "customfield_12200"
-  category: "Component"  
+  category: "Component"
+
+# Automatic field mapping detection (optional)
+# When enabled, LLM will analyze CSV headers and suggest field mappings
+auto_mapping:
+  enabled: false  # Set to true to enable auto-detection
+  sample_rows: 5  # Number of sample rows to analyze for better accuracy
+  # Usage:
+  #   CLI: --auto-map flag overrides this setting
+  #   UI: Toggle "Auto-detect fields" in sidebar
+  # Notes:
+  #   - Requires LLM to be enabled and configured
+  #   - Falls back to fuzzy matching if LLM unavailable
+  #   - Analysis will fail if required fields not detected
+  #   - Detected mapping overrides manual fields_mapping above  
 
 metrics:
   enabled:
