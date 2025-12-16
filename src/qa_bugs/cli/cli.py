@@ -11,7 +11,8 @@ from qa_bugs.services import AnalysisService, AnalysisConfig
 from qa_bugs.ingest.field_mapper import FieldMappingService
 from qa_bugs.cli.html_report import HTMLReportGenerator
 
-load_dotenv()
+# Load .env with override=True so .env file takes priority over system environment variables
+load_dotenv(override=True)
 app = typer.Typer(add_completion=False)
 
 

@@ -7,6 +7,11 @@ from pathlib import Path
 from datetime import datetime
 import os
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+# override=True ensures .env file takes priority over system environment variables
+load_dotenv(override=True)
 
 # Add parent directory to path to import qa_bugs modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -246,26 +251,13 @@ def main():
         final_config = config
         mapping_result = None
         
-        with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=show_config_expanded):
-            # File info section
-            st.markdown("### 📤 Upload Information")
-            st.success(f"✓ File uploaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")
-            st.info(f"Loaded **{len(df):,}** records from CSV")
+        # Cache field mapping detection in session state
+        if auto_map_enabled:
+            # Generate a cache key based on file name and columns
+            cache_key = f"{uploaded_file.name}_{','.join(df.columns[:5])}"  # Use first 5 columns as part of key
             
-            st.divider()
-            
-            # Data preview section (collapsed by default)
-            st.markdown("### 📋 Data Preview")
-            show_preview = st.toggle("Show data preview", value=False)
-            if show_preview:
-                st.dataframe(df.head(10), use_container_width=True)
-            
-            st.divider()
-            
-            # Field mapping section
-            if auto_map_enabled:
-                st.markdown("### 🔍 Field Mapping Detection")
-                
+            # Only run field mapping if not cached or file changed
+            if 'field_mapping_cache_key' not in st.session_state or st.session_state['field_mapping_cache_key'] != cache_key:
                 with st.spinner("Analyzing CSV headers..."):
                     # Create output directory for this session
                     from pathlib import Path
@@ -304,55 +296,84 @@ def main():
                         df=df,
                         sample_rows=config.auto_mapping.sample_rows
                     )
+                    
+                    # Cache the result
+                    st.session_state['field_mapping_result'] = mapping_result
+                    st.session_state['field_mapping_cache_key'] = cache_key
+                    logging.info(f"Field mapping cached for file: {uploaded_file.name}")
+            else:
+                # Use cached result
+                mapping_result = st.session_state['field_mapping_result']
+                logging.info(f"Using cached field mapping for: {uploaded_file.name}")
+        
+        with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=show_config_expanded):
+            # File info section
+            st.markdown("### 📤 Upload Information")
+            st.success(f"✓ File uploaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")
+            st.info(f"Loaded **{len(df):,}** records from CSV")
+            
+            st.divider()
+            
+            # Data preview section (collapsed by default)
+            st.markdown("### 📋 Data Preview")
+            show_preview = st.toggle("Show data preview", value=False)
+            if show_preview:
+                st.dataframe(df.head(10), use_container_width=True)
+            
+            st.divider()
+            
+            # Field mapping section
+            if auto_map_enabled and mapping_result:
+                st.markdown("### 🔍 Field Mapping Detection")
                 
-                    # Display mapping result
-                    if mapping_result.valid:
-                        st.success("✅ Field mapping detected successfully!")
-                        logging.info(f"Field mapping valid: {len(mapping_result.mapping)} fields mapped")
-                        
-                        # Show detected mapping in collapsible table (collapsed by default)
-                        show_mapping = st.toggle("Show detected field mapping", value=False)
-                        if show_mapping:
-                            mapping_df = pd.DataFrame([
-                                {"Canonical Field": k, "CSV Column": v}
-                                for k, v in mapping_result.mapping.items()
-                            ])
-                            st.dataframe(mapping_df, use_container_width=True, hide_index=True)
-                        
-                        # Show warnings if any
-                        if mapping_result.warnings:
-                            st.markdown("**⚠️ Warnings:**")
-                            for warning in mapping_result.warnings:
-                                st.warning(warning)
-                        
-                        # Override config with detected mapping
-                        final_config = AnalysisConfig(
-                            project=config.project,
-                            fields_mapping=mapping_result.mapping,
-                            auto_mapping=config.auto_mapping,
-                            enabled_metrics=config.enabled_metrics,
-                            metric_params=config.metric_params,
-                            exclude_statuses=config.exclude_statuses,
-                            llm=config.llm
-                        )
-                    else:
-                        # Show validation errors
-                        st.error("❌ Field Mapping Validation Failed")
-                        
-                        if mapping_result.errors:
-                            st.markdown("**Errors:**")
-                            for error in mapping_result.errors:
-                                st.error(f"• {error}")
-                        
-                        if mapping_result.missing_required:
-                            st.markdown("**Missing Required Fields:**")
-                            st.error(f"{', '.join(mapping_result.missing_required)}")
-                            st.info("""
-                            **Action Required:**
-                            1. Check your CSV file has these columns
-                            2. Or disable auto-mapping and use manual config
-                            3. Or fix field names in your CSV export
-                            """)
+                # Display mapping result
+                if mapping_result.valid:
+                    st.success("✅ Field mapping detected successfully!")
+                    logging.info(f"Field mapping valid: {len(mapping_result.mapping)} fields mapped")
+                    
+                    # Show detected mapping in collapsible table (collapsed by default)
+                    show_mapping = st.toggle("Show detected field mapping", value=False)
+                    if show_mapping:
+                        mapping_df = pd.DataFrame([
+                            {"Canonical Field": k, "CSV Column": v}
+                            for k, v in mapping_result.mapping.items()
+                        ])
+                        st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+                    
+                    # Show warnings if any
+                    if mapping_result.warnings:
+                        st.markdown("**⚠️ Warnings:**")
+                        for warning in mapping_result.warnings:
+                            st.warning(warning)
+                    
+                    # Override config with detected mapping
+                    final_config = AnalysisConfig(
+                        project=config.project,
+                        fields_mapping=mapping_result.mapping,
+                        auto_mapping=config.auto_mapping,
+                        enabled_metrics=config.enabled_metrics,
+                        metric_params=config.metric_params,
+                        exclude_statuses=config.exclude_statuses,
+                        llm=config.llm
+                    )
+                else:
+                    # Show validation errors
+                    st.error("❌ Field Mapping Validation Failed")
+                    
+                    if mapping_result.errors:
+                        st.markdown("**Errors:**")
+                        for error in mapping_result.errors:
+                            st.error(f"• {error}")
+                    
+                    if mapping_result.missing_required:
+                        st.markdown("**Missing Required Fields:**")
+                        st.error(f"{', '.join(mapping_result.missing_required)}")
+                        st.info("""
+                        **Action Required:**
+                        1. Check your CSV file has these columns
+                        2. Or disable auto-mapping and use manual config
+                        3. Or fix field names in your CSV export
+                        """)
                         
                         if mapping_result.warnings:
                             st.markdown("**Warnings:**")

@@ -33,7 +33,7 @@ class FieldMappingService:
     """
     
     REQUIRED_FIELDS = ["key", "created_at", "status", "priority"]
-    OPTIONAL_FIELDS = ["resolved_at", "environment", "category", "fix_version"]
+    OPTIONAL_FIELDS = ["resolved_at", "environment", "fix_version"]
     
     # Fallback fuzzy matching synonyms
     FIELD_SYNONYMS = {
@@ -43,7 +43,6 @@ class FieldMappingService:
         "status": ["status", "state", "resolution", "issue_status"],
         "priority": ["priority", "severity", "importance", "prio", "priority_level"],
         "environment": ["environment", "env", "target_env", "test_env", "deployment_env"],
-        "category": ["category", "type", "issue_type", "defect_type", "bug_type"],
         "fix_version": ["fix_version", "target_version", "fixed_in", "version", "release"],
     }
     
@@ -258,7 +257,6 @@ class FieldMappingService:
 **Canonical fields (OPTIONAL - map if available):**
 - resolved_at: timestamp when bug was resolved/closed (must contain date/time values)
 - environment: deployment environment (DEV, QA, PROD, UAT, etc.)
-- category: bug category or type
 - fix_version: target fix version or release
 
 **CRITICAL VALIDATION RULES:**
@@ -280,7 +278,6 @@ fields_mapping:
   priority: <column_name>
   resolved_at: <column_name>  # omit if not found
   environment: <column_name>  # omit if not found
-  category: <column_name>  # omit if not found
   fix_version: <column_name>  # omit if not found
 ```
 

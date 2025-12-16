@@ -56,7 +56,7 @@ class Normalizer:
             if col in out_df.columns:
                 out_df[col] = pd.to_datetime(out_df[col], errors="coerce")
 
-        for col in ("status", "priority", "fix_version", "environment", "category", "key"):
+        for col in ("status", "priority", "fix_version", "environment", "key"):
             if col in out_df.columns:
                 out_df[col] = out_df[col].astype("string").fillna(pd.NA)
 

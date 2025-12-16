@@ -1,9 +1,11 @@
-import os, time, re
+import os, time, re, logging
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 from .prompt_manager import PromptManager
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,8 +49,14 @@ class _LLMDebugEvent:
 class LLMService:
     def __init__(self, config: dict, full_config: dict | None = None, log_dir: str | None = None):
         self.enabled = config.get("enabled", False)
-        # Allow env var override for deployment name
-        self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4o-mini")
+        self.provider = config.get("provider", "azure").lower()  # 'azure' or 'openai'
+        
+        # Model/deployment configuration
+        if self.provider == "azure":
+            self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4o-mini")
+        else:
+            self.deployment = config.get("model", "gpt-4o-mini")  # OpenAI uses 'model' instead of 'deployment'
+        
         self.temperature = config.get("temperature", 0.2)
         self.max_tokens = config.get("max_tokens", 700)
         self.prompts_dir = config.get("prompts_dir", "prompts")  # Path relative to qa_bugs package
@@ -56,6 +64,7 @@ class LLMService:
         self.log_prompts = config.get("log_prompts", False)
         self._log_dir = Path(log_dir) if (log_dir and self.log_prompts) else None
         self.api_version = config.get("api_version", "2024-05-01-preview")
+        
         # Trimming / compression settings
         self.table_row_limit = int(config.get("table_row_limit", 200))  # per table
         self.max_prompt_chars = int(config.get("max_prompt_chars", 120_000))  # safety bound under model token limit
@@ -64,15 +73,41 @@ class LLMService:
         # Store full config for dynamic prompt templating (e.g., status lists from metrics.params)
         self.full_config = full_config or {}
 
-        # Read endpoint from config first, fall back to environment variable
-        self.endpoint = config.get("endpoint") or os.environ.get("AZURE_OPENAI_ENDPOINT")
-        api_key = os.environ.get("AZURE_OPENAI_KEY")
-
-        self.client = AzureOpenAI(
-            api_key=api_key,
-            api_version=self.api_version,
-            azure_endpoint=self.endpoint,
-        )
+        # Initialize the appropriate client based on provider
+        if self.provider == "azure":
+            self.endpoint = config.get("endpoint") or os.environ.get("AZURE_OPENAI_ENDPOINT")
+            api_key = os.environ.get("AZURE_OPENAI_KEY")
+            logger.info(f"LLM: Using Azure provider - endpoint={self.endpoint}, deployment={self.deployment}")
+            logger.debug(f"LLM: Azure API key length={len(api_key) if api_key else 0}, prefix={api_key[:10] if api_key else 'NONE'}...")
+            if self.debug:
+                print(f"[LLM] Azure provider - endpoint={self.endpoint}, deployment={self.deployment}, key_len={len(api_key) if api_key else 0}")
+            self.client = AzureOpenAI(
+                api_key=api_key,
+                api_version=self.api_version,
+                azure_endpoint=self.endpoint,
+            )
+        elif self.provider == "openai":
+            self.endpoint = "https://api.openai.com/v1"
+            api_key = config.get("api_key") or os.environ.get("OPENAI_API_KEY")
+            logger.info(f"LLM: Using OpenAI provider - model={self.deployment}")
+            if api_key:
+                logger.debug(f"LLM: OpenAI API key length={len(api_key)}, prefix={api_key[:15]}..., suffix=...{api_key[-20:]}")
+                logger.debug(f"LLM: Key has newlines: {repr(api_key).count('\\n')}, has spaces: {len(api_key) != len(api_key.strip())}")
+            else:
+                logger.error("LLM: OpenAI API key NOT FOUND in environment or config")
+            if not api_key:
+                raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY environment variable or provide 'api_key' in config.")
+            # Check for common issues
+            if '\n' in api_key or '\r' in api_key:
+                logger.error("LLM: API key contains newline characters - this will cause 401 errors")
+                raise ValueError("OpenAI API key contains newline characters. Check your .env file formatting.")
+            if self.debug:
+                print(f"[LLM] OpenAI provider - model={self.deployment}, key_len={len(api_key)}, key_prefix={api_key[:10]}...")
+            self.client = OpenAI(api_key=api_key.strip())
+            logger.info("LLM: OpenAI client created successfully")
+        else:
+            raise ValueError(f"Unsupported LLM provider: {self.provider}. Use 'azure' or 'openai'.")
+        
         self.pm = PromptManager(self.prompts_dir)
         if self._log_dir:
             try:
