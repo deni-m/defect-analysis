@@ -1,9 +1,6 @@
 # QA Bugs Analytics - Dependencies
 # For Streamlit Cloud and local deployment
 
-# Install the package itself in editable mode
--e .
-
 pandas>=2.2
 python-dateutil>=2.9
 pytz>=2024.1

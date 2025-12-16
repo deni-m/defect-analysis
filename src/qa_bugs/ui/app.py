@@ -13,8 +13,12 @@ from dotenv import load_dotenv
 # override=True ensures .env file takes priority over system environment variables
 load_dotenv(override=True)
 
-# Add parent directory to path to import qa_bugs modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src directory to path to import qa_bugs modules
+# Works both locally and on Streamlit Cloud
+project_root = Path(__file__).parent.parent.parent.parent
+src_path = project_root / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 from qa_bugs.services import AnalysisService, AnalysisConfig, get_storage_service
 from qa_bugs.ingest.field_mapper import FieldMappingService
