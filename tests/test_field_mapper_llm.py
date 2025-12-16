@@ -17,7 +17,7 @@ def llm_service():
     
     llm_config = {
         "enabled": True,
-        "prompts_dir": "qa_bugs/prompts",
+        "prompts_dir": "prompts",  # Path relative to qa_bugs package
         "provider": "azure",
         "endpoint": endpoint,
         "deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),

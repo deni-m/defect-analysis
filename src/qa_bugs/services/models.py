@@ -20,7 +20,7 @@ class AutoMappingConfig:
 class LLMConfig:
     """Configuration for LLM integration."""
     enabled: bool = True
-    prompts_dir: str = "qa_bugs/prompts"
+    prompts_dir: str = "prompts"  # Path relative to qa_bugs package directory
     provider: str = "azure"
     endpoint: Optional[str] = None
     deployment: str = "gpt-4o-mini"

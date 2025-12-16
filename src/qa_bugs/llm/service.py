@@ -51,7 +51,7 @@ class LLMService:
         self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4o-mini")
         self.temperature = config.get("temperature", 0.2)
         self.max_tokens = config.get("max_tokens", 700)
-        self.prompts_dir = config.get("prompts_dir", "qa_bugs/prompts")
+        self.prompts_dir = config.get("prompts_dir", "prompts")  # Path relative to qa_bugs package
         self.debug = config.get("debug", False)
         self.log_prompts = config.get("log_prompts", False)
         self._log_dir = Path(log_dir) if (log_dir and self.log_prompts) else None

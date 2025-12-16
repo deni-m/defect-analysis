@@ -14,7 +14,7 @@ def test_llm_live_chat_completion():
         "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
         "temperature": 0.0,
         "max_tokens": 50,
-        "prompts_dir": "qa_bugs/prompts",
+        "prompts_dir": "prompts",  # Path relative to qa_bugs package
     }
     service = LLMService(cfg)
     ok, message = service.ping()

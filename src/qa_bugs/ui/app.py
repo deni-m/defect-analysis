@@ -89,6 +89,10 @@ def main():
     Upload your JIRA CSV export to analyze defects and generate insights.
     """)
 
+    # Initialize session state for controlling expanders
+    if 'analysis_started' not in st.session_state:
+        st.session_state['analysis_started'] = False
+
     # Security warning
     st.warning("""
     ⚠️ **Data Privacy Notice**
@@ -153,14 +157,35 @@ def main():
         """)
 
     # Main content area
-    st.subheader("📤 Upload File")
+    st.info("""
+    **📋 Required CSV Fields:**
+    Your CSV file must contain columns that can be mapped to these fields:
+    
+    **Core fields (always required):**
+    - **key** - Unique defect/issue identifier
+    - **created_at** - Creation date/timestamp
+    - **status** - Current status (e.g., Open, Closed, In Progress)
+    - **priority** - Priority level (e.g., High, Medium, Low)
+    
+    **Required for specific metrics:**
+    - **resolved_at** - Resolution date (needed for: defect_age, cumulative_open_closed, age_by_priority)
+    - **environment** - Environment where defect found (needed for: leakage_rate, defects_by_env_priority)
+    """)
+    
     uploaded_file = st.file_uploader(
-        "Upload JIRA CSV File (anonymized, no PII, max 5MB)",
+        "📤 Upload JIRA CSV File (anonymized, no PII, max 5MB)",
         type=["csv"],
         help="Upload a CSV export from JIRA. Maximum file size: 5MB. Ensure sensitive data is removed or anonymized."
     )
 
     if uploaded_file is not None:
+        # Reset analysis state when new file is uploaded
+        if 'last_uploaded_file' not in st.session_state or st.session_state['last_uploaded_file'] != uploaded_file.name:
+            st.session_state['analysis_started'] = False
+            st.session_state['last_uploaded_file'] = uploaded_file.name
+            if 'analysis_result' in st.session_state:
+                del st.session_state['analysis_result']
+        
         # Validate file size (5MB limit)
         max_size_mb = 5
         max_size_bytes = max_size_mb * 1024 * 1024
@@ -179,9 +204,6 @@ def main():
             - Splitting into multiple smaller files
             """)
             return
-
-        # Display file info
-        st.success(f"✓ File uploaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")
 
         # Optional: Upload to Azure Blob Storage (only if configured)
         # Disabled by default - analysis works in-memory without Azure
@@ -211,135 +233,154 @@ def main():
         try:
             # Read from uploaded file directly (already in memory)
             df = pd.read_csv(uploaded_file)
-            st.info(f"Loaded **{len(df):,}** records from CSV")
 
         except Exception as e:
             st.error(f"Failed to parse CSV: {str(e)}")
             return
 
-        # Show preview
-        with st.expander("Preview Data (first 10 rows)"):
-            st.dataframe(df.head(10), use_container_width=True)
-
+        # Master collapsible section for all configuration (can be hidden for PDF export)
+        # Collapse automatically after analysis runs
+        show_config_expanded = not st.session_state.get('analysis_started', False)
+        
         # Handle field mapping
         final_config = config
         mapping_result = None
         
-        if auto_map_enabled:
-            st.subheader("🔍 Field Mapping Detection")
+        with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=show_config_expanded):
+            # File info section
+            st.markdown("### 📤 Upload Information")
+            st.success(f"✓ File uploaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")
+            st.info(f"Loaded **{len(df):,}** records from CSV")
             
-            with st.spinner("Analyzing CSV headers..."):
-                # Create output directory for this session
-                from pathlib import Path
-                project_root = Path(__file__).parent.parent.parent.parent
-                output_dir = project_root / "output" / f"ui_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                output_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Setup logging
-                log_file = setup_logging(output_dir)
-                logging.info(f"Auto-mapping CSV with {len(df.columns)} columns")
-                
-                # Initialize LLM service if needed
-                llm_service = None
-                if config.llm.enabled:
-                    from qa_bugs.llm.service import LLMService
-                    # Convert config to dict format
-                    llm_dict = {
-                        "enabled": True,
-                        "prompts_dir": config.llm.prompts_dir,
-                        "provider": config.llm.provider,
-                        "endpoint": config.llm.endpoint,
-                        "deployment": config.llm.deployment,
-                        "api_version": config.llm.api_version,
-                        "temperature": 0.1,  # Lower temperature for mapping
-                        "max_tokens": 1000,
-                        "debug": config.llm.debug,
-                        "log_prompts": config.llm.log_prompts,
-                    }
-                    llm_service = LLMService(llm_dict, log_dir=str(output_dir))
-                
-                # Initialize field mapper
-                field_mapper = FieldMappingService(llm_service=llm_service)
-                
-                # Auto-detect mapping
-                mapping_result = field_mapper.auto_detect_mapping(
-                    df=df,
-                    sample_rows=config.auto_mapping.sample_rows
-                )
+            st.divider()
             
-            # Display mapping result
-            if mapping_result.valid:
-                st.success("✅ Field mapping detected successfully!")
-                logging.info(f"Field mapping valid: {len(mapping_result.mapping)} fields mapped")
+            # Data preview section (collapsed by default)
+            st.markdown("### 📋 Data Preview")
+            show_preview = st.toggle("Show data preview", value=False)
+            if show_preview:
+                st.dataframe(df.head(10), use_container_width=True)
+            
+            st.divider()
+            
+            # Field mapping section
+            if auto_map_enabled:
+                st.markdown("### 🔍 Field Mapping Detection")
                 
-                # Show detected mapping in expandable table
-                with st.expander("📋 Detected Field Mapping", expanded=True):
-                    mapping_df = pd.DataFrame([
-                        {"Canonical Field": k, "CSV Column": v}
-                        for k, v in mapping_result.mapping.items()
-                    ])
-                    st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+                with st.spinner("Analyzing CSV headers..."):
+                    # Create output directory for this session
+                    from pathlib import Path
+                    project_root = Path(__file__).parent.parent.parent.parent
+                    output_dir = project_root / "output" / f"ui_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Setup logging
+                    log_file = setup_logging(output_dir)
+                    logging.info(f"Auto-mapping CSV with {len(df.columns)} columns")
+                    
+                    # Initialize LLM service if needed
+                    llm_service = None
+                    if config.llm.enabled:
+                        from qa_bugs.llm.service import LLMService
+                        # Convert config to dict format
+                        llm_dict = {
+                            "enabled": True,
+                            "prompts_dir": config.llm.prompts_dir,
+                            "provider": config.llm.provider,
+                            "endpoint": config.llm.endpoint,
+                            "deployment": config.llm.deployment,
+                            "api_version": config.llm.api_version,
+                            "temperature": 0.1,  # Lower temperature for mapping
+                            "max_tokens": 1000,
+                            "debug": config.llm.debug,
+                            "log_prompts": config.llm.log_prompts,
+                        }
+                        llm_service = LLMService(llm_dict, log_dir=str(output_dir))
+                    
+                    # Initialize field mapper
+                    field_mapper = FieldMappingService(llm_service=llm_service)
+                    
+                    # Auto-detect mapping
+                    mapping_result = field_mapper.auto_detect_mapping(
+                        df=df,
+                        sample_rows=config.auto_mapping.sample_rows
+                    )
                 
-                # Show warnings if any
-                if mapping_result.warnings:
-                    with st.expander("⚠️ Warnings"):
-                        for warning in mapping_result.warnings:
-                            st.warning(warning)
-                
-                # Override config with detected mapping
-                final_config = AnalysisConfig(
-                    project=config.project,
-                    fields_mapping=mapping_result.mapping,
-                    auto_mapping=config.auto_mapping,
-                    enabled_metrics=config.enabled_metrics,
-                    metric_params=config.metric_params,
-                    exclude_statuses=config.exclude_statuses,
-                    llm=config.llm
-                )
-            else:
-                # Show validation errors
-                st.error("❌ Field Mapping Validation Failed")
-                
-                if mapping_result.errors:
-                    st.subheader("Errors:")
-                    for error in mapping_result.errors:
-                        st.error(f"• {error}")
-                
-                if mapping_result.missing_required:
-                    st.subheader("Missing Required Fields:")
-                    st.error(f"{', '.join(mapping_result.missing_required)}")
-                    st.info("""
-                    **Action Required:**
-                    1. Check your CSV file has these columns
-                    2. Or disable auto-mapping and use manual config
-                    3. Or fix field names in your CSV export
-                    """)
-                
-                if mapping_result.warnings:
-                    st.subheader("Warnings:")
-                    for warning in mapping_result.warnings:
-                        st.warning(f"• {warning}")
-                
-                # Stop here - don't allow analysis
-                st.stop()
-        
-        # Date range filters (optional)
-        st.subheader("Filters (Optional)")
-        col1, col2 = st.columns(2)
+                    # Display mapping result
+                    if mapping_result.valid:
+                        st.success("✅ Field mapping detected successfully!")
+                        logging.info(f"Field mapping valid: {len(mapping_result.mapping)} fields mapped")
+                        
+                        # Show detected mapping in collapsible table (collapsed by default)
+                        show_mapping = st.toggle("Show detected field mapping", value=False)
+                        if show_mapping:
+                            mapping_df = pd.DataFrame([
+                                {"Canonical Field": k, "CSV Column": v}
+                                for k, v in mapping_result.mapping.items()
+                            ])
+                            st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+                        
+                        # Show warnings if any
+                        if mapping_result.warnings:
+                            st.markdown("**⚠️ Warnings:**")
+                            for warning in mapping_result.warnings:
+                                st.warning(warning)
+                        
+                        # Override config with detected mapping
+                        final_config = AnalysisConfig(
+                            project=config.project,
+                            fields_mapping=mapping_result.mapping,
+                            auto_mapping=config.auto_mapping,
+                            enabled_metrics=config.enabled_metrics,
+                            metric_params=config.metric_params,
+                            exclude_statuses=config.exclude_statuses,
+                            llm=config.llm
+                        )
+                    else:
+                        # Show validation errors
+                        st.error("❌ Field Mapping Validation Failed")
+                        
+                        if mapping_result.errors:
+                            st.markdown("**Errors:**")
+                            for error in mapping_result.errors:
+                                st.error(f"• {error}")
+                        
+                        if mapping_result.missing_required:
+                            st.markdown("**Missing Required Fields:**")
+                            st.error(f"{', '.join(mapping_result.missing_required)}")
+                            st.info("""
+                            **Action Required:**
+                            1. Check your CSV file has these columns
+                            2. Or disable auto-mapping and use manual config
+                            3. Or fix field names in your CSV export
+                            """)
+                        
+                        if mapping_result.warnings:
+                            st.markdown("**Warnings:**")
+                            for warning in mapping_result.warnings:
+                                st.warning(f"• {warning}")
+                        
+                        # Stop here - don't allow analysis
+                        st.stop()
+            
+            st.divider()
+            
+            # Date range filters section
+            st.markdown("### ⚙️ Date Filters (Optional)")
+            col1, col2 = st.columns(2)
 
-        with col1:
-            use_since = st.checkbox("Filter by start date")
-            since_date = None
-            if use_since:
-                since_date = st.date_input("Created since")
+            with col1:
+                use_since = st.checkbox("Filter by start date")
+                since_date = None
+                if use_since:
+                    since_date = st.date_input("Created since")
 
-        with col2:
-            use_until = st.checkbox("Filter by end date")
-            until_date = None
-            if use_until:
-                until_date = st.date_input("Created until")
+            with col2:
+                use_until = st.checkbox("Filter by end date")
+                until_date = None
+                if use_until:
+                    until_date = st.date_input("Created until")
 
-        # Run analysis button
+        # Run analysis button (outside the expander)
         if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
             with st.spinner("Running analysis... This may take a minute."):
                 try:
@@ -366,9 +407,15 @@ def main():
                     # Store result in session state for persistence during reruns
                     st.session_state['analysis_result'] = result
                     st.session_state['analysis_timestamp'] = datetime.now()
+                    
+                    # Mark that analysis has started (will collapse expanders on rerun)
+                    st.session_state['analysis_started'] = True
 
                     logging.info("Analysis completed successfully")
                     st.success("✓ Analysis complete!")
+                    
+                    # Force rerun to collapse expanders
+                    st.rerun()
 
                 except Exception as e:
                     st.error(f"Analysis failed: {str(e)}")

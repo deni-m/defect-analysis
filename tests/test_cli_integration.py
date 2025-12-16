@@ -16,11 +16,35 @@ def test_cli_generates_report(tmp_path, metrics):
     csv_path = tmp_path / "sample.csv"
     pd.DataFrame(data).to_csv(csv_path, index=False)
 
-    config_text = Path("configs/example.config.yml").read_text(encoding="utf-8")
-    # Use same config but restrict enabled metrics to the param
-    config_override = config_text.replace("enabled:", f"enabled:\n    - defect_age\n    - age_by_priority")
+    # Create a simple config with only required metrics
+    config_yaml = """
+project:
+  timezone: "UTC"
+
+fields_mapping:
+  key: "Key"
+  created_at: "Created"
+  resolved_at: "resolutiondate"
+  status: "Status"
+  priority: "Priority"
+  fix_version: "FixVersions"
+  environment: "customfield_12200"
+  category: "Component"
+
+metrics:
+  enabled:
+    - defect_age
+    - age_by_priority
+
+  params:
+    defect_age:
+      open_statuses: ["Open", "In Progress"]
+
+llm:
+  enabled: false
+"""
     cfg_path = tmp_path / "config.yml"
-    cfg_path.write_text(config_override, encoding="utf-8")
+    cfg_path.write_text(config_yaml, encoding="utf-8")
 
     cmd = ["python", "-m", "qa_bugs.cli.cli", "--config", str(cfg_path), "--input", str(csv_path), "--llm", "off"]
     subprocess.run(cmd, check=True)
@@ -75,6 +99,10 @@ metrics:
     - leakage_rate
     
   params:
+    common:
+      exclude_statuses: []
+    defect_age:
+      open_statuses: ["Open", "In Progress"]
     leakage_rate:
       intended_env: ["QA"]
       leak_envs: ["Prod"]

@@ -168,12 +168,14 @@ def run(
     logging.info(f"Analysis complete. Report saved to: {out_path}")
     logging.info(f"Logs saved to: {log_file}")
 
-    typer.echo(f"✓ Analysis complete!")
-    typer.echo(f"✓ Report saved to: {out_path}")
-    typer.echo(f"✓ Logs saved to: {log_file}")
-    typer.echo(f"✓ Total records: {result.metadata['total_records']}")
-    typer.echo(f"✓ Filtered records: {result.metadata['filtered_records']}")
-    typer.echo(f"✓ Metrics computed: {len(result.metrics_results)}")
+    # Use ASCII checkmark for Windows console compatibility
+    checkmark = "[OK]"
+    typer.echo(f"{checkmark} Analysis complete!")
+    typer.echo(f"{checkmark} Report saved to: {out_path}")
+    typer.echo(f"{checkmark} Logs saved to: {log_file}")
+    typer.echo(f"{checkmark} Total records: {result.metadata['total_records']}")
+    typer.echo(f"{checkmark} Filtered records: {result.metadata['filtered_records']}")
+    typer.echo(f"{checkmark} Metrics computed: {len(result.metrics_results)}")
 
 
 if __name__ == "__main__":

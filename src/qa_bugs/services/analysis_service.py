@@ -79,8 +79,17 @@ class AnalysisService:
             exclude_statuses=self.config.exclude_statuses
         )
 
+        # For rejection_rate: apply date filters but not status filters
+        df_date_filtered = apply_filters(
+            df_normalized,
+            since=since_date.strftime("%Y-%m-%d") if since_date else None,
+            until=until_date.strftime("%Y-%m-%d") if until_date else None,
+            exclude_statuses=[]  # Don't filter statuses for rejection_rate
+        )
+
         # Step 3: Compute metrics
-        metrics_results = self._compute_metrics(df_filtered)
+        # Note: rejection_rate needs date-filtered but not status-filtered data
+        metrics_results = self._compute_metrics(df_filtered, df_unfiltered=df_date_filtered)
 
         # Step 4: Generate LLM insights (if enabled)
         should_use_llm = llm_enabled if llm_enabled is not None else self.config.llm.enabled
@@ -117,12 +126,13 @@ class AnalysisService:
             metadata=metadata
         )
 
-    def _compute_metrics(self, df: pd.DataFrame) -> Dict[str, "MetricResult"]:
+    def _compute_metrics(self, df: pd.DataFrame, df_unfiltered: pd.DataFrame = None) -> Dict[str, "MetricResult"]:
         """
         Compute all enabled metrics.
 
         Args:
-            df: Filtered and normalized DataFrame
+            df: Filtered and normalized DataFrame (for most metrics)
+            df_unfiltered: Unfiltered normalized DataFrame (for metrics like rejection_rate that need all data)
 
         Returns:
             Dictionary of metric_id -> MetricResult
@@ -148,8 +158,12 @@ class AnalysisService:
             # Provide fallback access to original full config for legacy metrics
             merged_params["__full_config__"] = legacy_config
 
+            # Use unfiltered data for rejection_rate to count all rejected bugs (including cancelled)
+            # Other metrics use filtered data to analyze valid bug lifecycle
+            data_for_metric = df_unfiltered if (metric_id == "rejection_rate" and df_unfiltered is not None) else df
+
             # Compute metric
-            result = metric_cls().compute(df, merged_params)
+            result = metric_cls().compute(data_for_metric, merged_params)
             results[metric_id] = result
 
         return results

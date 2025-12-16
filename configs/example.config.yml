@@ -56,7 +56,7 @@ metrics:
 
 llm:
   enabled: true
-  prompts_dir: "qa_bugs/prompts"
+  prompts_dir: "prompts"  # Path relative to qa_bugs package directory
   provider: azure
   endpoint: "https://ai-proxy.lab.epam.com"  # ← Your EPAM proxy URL
   deployment: "gpt-5-chat-2025-08-07"
