@@ -12,6 +12,89 @@ qa-bugs run   --config configs/example.config.yml   --input data/sample_bugs.csv
 
 Open the generated `report.html` in a browser.
 
+## Environment Handling
+
+**Data-Driven Approach:**
+- Environments are **discovered from your uploaded data**, not predefined in config
+- Only environments present in the data are analyzed and displayed in reports
+- Environments are ordered by defect count (most defects first) for better visibility
+- If an environment doesn't exist in your data, it won't appear in any metric
+
+**Environment Mapping:**
+- Use `env_value_mapping` (manual) or `auto_env_mapping` (LLM-based) to normalize values
+- Example: `"production" → "PROD"`, `"testing" → "QA"`
+- Mapping happens **before** analysis, so configure `intended_env` and `leak_envs` using the **mapped values**
+
+**Example:**
+```yaml
+# If your data has: "prod-server", "qa-env", "staging"
+# And you map them to: PROD, QA, STAGE
+# Configure leakage_rate to use mapped names:
+leakage_rate:
+  intended_env: ["QA", "STAGE"]  # Use mapped names
+  leak_envs: ["PROD"]            # Use mapped names
+```
+
+**Warnings:**
+- If you configure `intended_env` or `leak_envs` with environments not in your data, warnings will be logged
+- Missing environments are skipped automatically - analysis continues with available data
+
+## AI Data Understanding (New!)
+
+**Automatic Classification:**
+- The system can automatically classify your data semantics using AI
+- No more hardcoded status lists or priority mappings
+- Works with any bug tracking system (Jira, Azure DevOps, GitHub Issues, etc.)
+
+**What Gets Classified:**
+1. **Statuses** → Open / Closed / Rejected categories
+2. **Priorities** → Severity order (Critical → High → Medium → Low)
+3. **Environments** → Production vs Non-Production
+
+**How to Enable:**
+```yaml
+# In config file:
+auto_classification:
+  enabled: true
+  classify_statuses: true
+  classify_priorities: true
+  classify_environments: true
+  confidence_threshold: 0.6  # Auto-apply if confidence ≥ 60%
+```
+
+Or via CLI:
+```bash
+qa-bugs run --config config.yml --input data.csv --auto-classify --llm on
+```
+
+**How It Works:**
+1. Upload your data → AI analyzes unique status/priority values
+2. LLM classification (if enabled) or fuzzy keyword matching (fallback)
+3. Classifications shown in report with confidence scores
+4. High-confidence classifications auto-applied to metrics
+5. You can review and override AI decisions
+
+**Benefits:**
+- ✅ Works with any project (no config changes needed)
+- ✅ Transparent (see what AI decided + confidence scores)
+- ✅ Fallback to fuzzy matching if LLM unavailable
+- ✅ Reduces config complexity
+- ✅ Adapts to your project's terminology
+
+**Report Display:**
+Reports now include "� AI Data Profile" section showing:
+- **Status Tab**: Open/Closed/Rejected classifications with confidence scores
+- **Priority Tab**: Severity ordering from highest to lowest
+- **Environment Tab**: Production vs Non-Production, pipeline order (DEV → QA → STAGE → PROD)
+- **Summary Tab**: Field completeness, date range, applicable metrics
+- Method used (LLM or fuzzy matching) with confidence percentage
+- Any warnings or unclassified values
+
+**Available In:**
+- ✅ **CLI HTML Reports** - Detailed profile section with styling
+- ✅ **Streamlit UI** - Interactive expandable tabs (Status/Priority/Environment/Summary)
+- ✅ **UI Toggle** - Enable/disable auto-classification from sidebar
+
 ## Exporting data from Jira
 
 You can pull fresh issues directly from Jira into a CSV compatible with the analytics pipeline.

@@ -7,6 +7,7 @@ from qa_bugs.metrics.base import MetricResult
 
 if TYPE_CHECKING:
     from qa_bugs.services.kpi_calculator import SummaryKPIs
+    from qa_bugs.services.data_profiler import DataProfile
 
 
 @dataclass
@@ -14,6 +15,25 @@ class AutoMappingConfig:
     """Configuration for automatic field mapping."""
     enabled: bool = False
     sample_rows: int = 5
+
+
+@dataclass
+class AutoEnvMappingConfig:
+    """Configuration for automatic environment value mapping."""
+    enabled: bool = False
+    allow_passthrough: bool = True
+    target_categories: List[str] = field(default_factory=lambda: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"])
+
+
+@dataclass
+class AutoClassificationConfig:
+    """Configuration for automatic status/priority/environment classification."""
+    enabled: bool = False
+    classify_statuses: bool = True
+    classify_priorities: bool = True
+    classify_environments: bool = True
+    require_manual_review: bool = False  # If True, show classification but don't auto-apply
+    confidence_threshold: float = 0.6  # Minimum confidence to auto-apply
 
 
 @dataclass
@@ -59,6 +79,15 @@ class AnalysisConfig:
     # Automatic field mapping configuration
     auto_mapping: AutoMappingConfig = field(default_factory=AutoMappingConfig)
 
+    # Automatic environment value mapping configuration
+    auto_env_mapping: AutoEnvMappingConfig = field(default_factory=AutoEnvMappingConfig)
+
+    # Manual environment value mapping (applied before auto-mapping)
+    env_value_mapping: Dict[str, str] = field(default_factory=dict)
+
+    # Automatic semantic classification configuration
+    auto_classification: AutoClassificationConfig = field(default_factory=AutoClassificationConfig)
+
     # Metrics configuration
     enabled_metrics: List[str] = field(default_factory=list)
     metric_params: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -97,6 +126,28 @@ class AnalysisConfig:
             sample_rows=auto_mapping_dict.get("sample_rows", 5)
         )
 
+        # Extract auto_env_mapping config
+        auto_env_mapping_dict = config_dict.get("auto_env_mapping", {})
+        auto_env_mapping = AutoEnvMappingConfig(
+            enabled=auto_env_mapping_dict.get("enabled", False),
+            allow_passthrough=auto_env_mapping_dict.get("allow_passthrough", True),
+            target_categories=auto_env_mapping_dict.get("target_categories", ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"])
+        )
+
+        # Extract manual environment value mapping
+        env_value_mapping = config_dict.get("env_value_mapping", {})
+
+        # Extract auto_classification config
+        auto_classification_dict = config_dict.get("auto_classification", {})
+        auto_classification = AutoClassificationConfig(
+            enabled=auto_classification_dict.get("enabled", False),
+            classify_statuses=auto_classification_dict.get("classify_statuses", True),
+            classify_priorities=auto_classification_dict.get("classify_priorities", True),
+            classify_environments=auto_classification_dict.get("classify_environments", True),
+            require_manual_review=auto_classification_dict.get("require_manual_review", False),
+            confidence_threshold=auto_classification_dict.get("confidence_threshold", 0.6)
+        )
+
         # Extract metrics configuration
         metrics_config = config_dict.get("metrics", {})
         enabled_metrics = metrics_config.get("enabled", [])
@@ -130,6 +181,9 @@ class AnalysisConfig:
             project=project,
             fields_mapping=fields_mapping,
             auto_mapping=auto_mapping,
+            auto_env_mapping=auto_env_mapping,
+            env_value_mapping=env_value_mapping,
+            auto_classification=auto_classification,
             enabled_metrics=enabled_metrics,
             metric_params=metric_params,
             exclude_statuses=exclude_statuses,
@@ -197,6 +251,9 @@ class AnalysisResult:
 
     # Overall LLM summary across all metrics (if enabled)
     overall_summary: str = ""
+
+    # Data profile (if profiling enabled)
+    data_profile: Optional[DataProfile] = None
 
     # Metadata about the analysis run
     metadata: Dict[str, Any] = field(default_factory=dict)

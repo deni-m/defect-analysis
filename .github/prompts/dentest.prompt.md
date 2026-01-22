@@ -1,5 +1,5 @@
 ---
-mode: 'agent'
+agent: 'agent'
 model: GPT-5
 tools: ['runNotebooks', 'search/codebase', 'runCommands', 'githubRepo']
 description: 'Generate a new React form component'

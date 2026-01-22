@@ -13,43 +13,45 @@ class DefectsByEnvPriority(Metric):
         df["environment"] = df["environment"].astype(str).str.split(",")
         df = df.explode("environment")
         df["environment"] = df["environment"].str.strip().str.upper()
-        # Get environment order from config if present
-        env_order = params.get("env_order")
-        if env_order:
-            # Normalize both data and config to uppercase for case-insensitive comparison
-            env_order_upper = [e.upper() for e in env_order]
-            df["environment"] = df["environment"].str.upper()
-        else:
-            env_order_upper = None
+        
         tbl = (
             df.groupby(["environment", "priority"])
             .size()
             .reset_index(name="count")
         )
-        # Determine final ordering: unknown envs (not in config) first by descending total count, then configured order
-        final_order = None
-        if env_order_upper is not None:
-            total_counts = tbl.groupby("environment", dropna=False)["count"].sum().reset_index()
-            known_set = set(env_order_upper)
-            unknown_rows = total_counts[~total_counts["environment"].isin(known_set)]
-            # Sort unknowns by descending count then alphabetically for stability
-            unknown_sorted = unknown_rows.sort_values(["count", "environment"], ascending=[False, True])["environment"].tolist()
-            final_order = unknown_sorted + env_order_upper
-            # Apply categorical with combined order so labels are preserved (no NaN collapse)
-            tbl["environment"] = pd.Categorical(tbl["environment"], categories=final_order, ordered=True)
-            tbl = tbl.sort_values("environment")
+        
+        # Order environments by total count (descending) - data-driven approach
+        # No config-based env_order needed - we show only what exists in the data
+        total_counts = tbl.groupby("environment", dropna=False)["count"].sum().reset_index()
+        # Sort by descending count, then alphabetically for stability
+        env_order_by_count = total_counts.sort_values(
+            ["count", "environment"], 
+            ascending=[False, True]
+        )["environment"].tolist()
+        
+        # Apply categorical ordering
+        tbl["environment"] = pd.Categorical(
+            tbl["environment"], 
+            categories=env_order_by_count, 
+            ordered=True
+        )
+        tbl = tbl.sort_values("environment")
+        
         summary = f"Defects grouped by environment and priority. Total: {tbl['count'].sum()}"
+        
         # Build a debug table of unique environments (post-normalization) for troubleshooting ordering
         env_counts = (
             df.groupby("environment").size().reset_index(name="raw_count").sort_values("raw_count", ascending=False)
         )
+        
         tables = {"env_priority": tbl, "env_counts": env_counts}
-        if env_order_upper is not None:
-            # Store as DataFrame (Series caused .to_dict(orient="records") TypeError in payload serialization)
-            tables["env_order_upper"] = pd.DataFrame({
-                "environment": env_order_upper,
-                "order_index": list(range(len(env_order_upper)))
-            })
+        
+        # Store discovered environments for other metrics to use
+        tables["discovered_environments"] = pd.DataFrame({
+            "environment": env_order_by_count,
+            "count": [total_counts[total_counts["environment"] == e]["count"].values[0] for e in env_order_by_count]
+        })
+        
         return MetricResult(
             metric_id=self.id,
             tables=tables,
@@ -60,24 +62,18 @@ class DefectsByEnvPriority(Metric):
         tbl = result.tables.get("env_priority")
         if tbl is None or tbl.empty:
             return ""
-        env_order_upper = None
-        env_order_tbl = result.tables.get("env_order_upper")
-        if env_order_tbl is not None and not env_order_tbl.empty and "environment" in env_order_tbl.columns:
-            env_order_upper = env_order_tbl["environment"].tolist()
-        # Build final order again (unknown first) for plotting if we have configured order
+        
+        # Get environment order from the discovered environments table
+        discovered_tbl = result.tables.get("discovered_environments")
         category_order = None
-        if env_order_upper is not None:
-            total_counts = tbl.groupby("environment", dropna=False)["count"].sum().reset_index()
-            known_set = set(env_order_upper)
-            unknown_sorted = (
-                total_counts[~total_counts["environment"].isin(known_set)]
-                .sort_values(["count", "environment"], ascending=[False, True])["environment"].tolist()
-            )
-            category_order = unknown_sorted + env_order_upper
+        if discovered_tbl is not None and not discovered_tbl.empty:
+            category_order = discovered_tbl["environment"].tolist()
+        
         # Ensure sort matches final category order if categorical exists
         if category_order is not None:
             tbl["environment"] = pd.Categorical(tbl["environment"], categories=category_order, ordered=True)
             tbl = tbl.sort_values("environment")
+        
         # Priority color scheme (urgent to low urgency)
         priority_colors = {
             "Critical": "#c0392b",    # Dark red

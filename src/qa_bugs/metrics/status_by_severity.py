@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 import pandas as pd
 import plotly.express as px
 
@@ -16,13 +17,15 @@ class StatusBySeverity(Metric):
 
     Chart:
     - Stacked bar chart of statuses per priority ordered by total count descending.
+    
+    If DataProfile is provided, uses AI-classified open/closed statuses for color coding.
     """
 
     id = "status_by_severity"
     display_name = "Status by Severity"
     requires = {"status", "priority"}
 
-    def compute(self, df: pd.DataFrame, ctx: dict) -> MetricResult:
+    def compute(self, df: pd.DataFrame, ctx: dict, profile: Optional["DataProfile"] = None) -> MetricResult:
         if df.empty:
             return MetricResult(self.id, summary="No data")
 
@@ -68,41 +71,17 @@ class StatusBySeverity(Metric):
             lambda r: f"{r['percent_priority']:.0f}% ({int(r['count'])})", axis=1
         )
 
-        # Define custom colors for statuses - comprehensive palette
-        status_colors = {
-            # Completed states (green shades)
-            "Done": "#2ca02c",
-            "Resolved": "#27ae60",
-            "Closed": "#1e8449",
-
-            # In progress states (blue/purple shades)
-            "In Progress": "#3498db",
-            "Implementing": "#2980b9",
-            "IN QA": "#8e44ad",
-            "Code Review": "#9b59b6",
-            "Ready for QA": "#5dade2",
-
-            # Waiting states (orange shades)
-            "To Do": "#e67e22",
-            "Open": "#ff7f0e",
-            "Funnel": "#f39c12",
-            "Analysis": "#d68910",
-            "Ready for Production": "#dc7633",
-            "Ready for Acceptance": "#ca6f1e",
-
-            # On hold/blocked states (amber/yellow)
-            "Blocked / On Hold": "#f1c40f",
-            "On Hold": "#f4d03f",
-
-            # Cancelled/rejected states (gray)
-            "Cancelled": "#95a5a6",
-            "Rejected": "#7f8c8d",
-
-            # Other
-            "Accepted": "#16a085",
-            "Unknown": "#bdc3c7",
-        }
-
+        # Define custom colors for statuses
+        # If profile is provided, use semantic color mapping (green=closed, blue=open, gray=rejected)
+        # Otherwise use hardcoded palette
+        if profile and profile.status_profile:
+            status_colors = self._build_profile_colors(
+                profile.status_profile, 
+                long_df['status'].unique().tolist()
+            )
+        else:
+            status_colors = self._build_default_colors()
+        
         fig = px.bar(
             long_df,
             x="priority",
@@ -160,3 +139,67 @@ class StatusBySeverity(Metric):
             return chart_obj.to_html(include_plotlyjs=False, full_html=False)
         except Exception:
             return None
+    
+    @staticmethod
+    def _build_profile_colors(status_profile: "StatusProfile", all_statuses: list) -> dict:
+        """Build semantic color map based on AI classification."""
+        colors = {}
+        
+        # Closed statuses: green shades
+        green_shades = ["#2ca02c", "#27ae60", "#1e8449", "#16a085"]
+        for i, status in enumerate(status_profile.closed_statuses):
+            colors[status] = green_shades[i % len(green_shades)]
+        
+        # Open statuses: blue shades  
+        blue_shades = ["#3498db", "#2980b9", "#5dade2", "#8e44ad", "#e67e22", "#ff7f0e", "#f39c12"]
+        for i, status in enumerate(status_profile.open_statuses):
+            colors[status] = blue_shades[i % len(blue_shades)]
+        
+        # Rejected statuses: gray shades
+        gray_shades = ["#95a5a6", "#7f8c8d", "#bdc3c7"]
+        for i, status in enumerate(status_profile.rejected_statuses):
+            colors[status] = gray_shades[i % len(gray_shades)]
+        
+        # Unknown statuses: default gray
+        for status in all_statuses:
+            if status not in colors:
+                colors[status] = "#bdc3c7"
+        
+        return colors
+    
+    @staticmethod
+    def _build_default_colors() -> dict:
+        """Build hardcoded color palette (fallback when no profile)."""
+        return {
+            # Completed states (green shades)
+            "Done": "#2ca02c",
+            "Resolved": "#27ae60",
+            "Closed": "#1e8449",
+
+            # In progress states (blue/purple shades)
+            "In Progress": "#3498db",
+            "Implementing": "#2980b9",
+            "IN QA": "#8e44ad",
+            "Code Review": "#9b59b6",
+            "Ready for QA": "#5dade2",
+
+            # Waiting states (orange shades)
+            "To Do": "#e67e22",
+            "Open": "#ff7f0e",
+            "Funnel": "#f39c12",
+            "Analysis": "#d68910",
+            "Ready for Production": "#dc7633",
+            "Ready for Acceptance": "#ca6f1e",
+
+            # On hold/blocked states (amber/yellow)
+            "Blocked / On Hold": "#f1c40f",
+            "On Hold": "#f4d03f",
+
+            # Cancelled/rejected states (gray)
+            "Cancelled": "#95a5a6",
+            "Rejected": "#7f8c8d",
+
+            # Other
+            "Accepted": "#16a085",
+            "Unknown": "#bdc3c7",
+        }

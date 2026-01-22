@@ -2,7 +2,16 @@
 
 Keep instructions short and actionable. Focus on the existing architecture and conventions.
 
+**📝 Documentation Requirements:**
+- **ALWAYS update documentation when making code changes**
+- Update README.md for user-facing features
+- Update docs/*.md for technical documentation
+- Keep copilot-instructions.md current with architecture changes
+- Add inline comments for complex logic
+- Update roadmap files (AI_DATA_ANALYSIS_LAYER.md) when implementing planned features
+
 - Project entry: CLI `qa-bugs` (console script -> `qa_bugs.cli.cli:app`). See `qa_bugs/cli/cli.py`.
+- Streamlit UI: `src/qa_bugs/ui/app.py` - Web interface using same AnalysisService as CLI
 - Main data flow: CSV -> `Normalizer` -> `apply_filters` -> metric compute -> `ReportBuilder` -> `output/run_*/report.html`.
 
 - Metric contract: every metric returns `MetricResult` (see `qa_bugs/metrics/base.py`). Key fields:
@@ -35,11 +44,27 @@ Keep instructions short and actionable. Focus on the existing architecture and c
   - Follow existing typing and PEP8 style; the repo uses type hints in key places.
   - Prefer config-driven parameters (see `configs/example.config.yml`).
 
+- AI Data Understanding Layer:
+  - `qa_bugs/services/data_profiler.py` - AI-powered semantic classification (Phase 0 ✅)
+  - `qa_bugs/services/analysis_service.py` - Main orchestration with profiler integration
+  - `qa_bugs/ui/components/results_display.py` - Streamlit UI display components
+  - Roadmap: `docs/AI_DATA_ANALYSIS_LAYER.md` - tracks MVP implementation (Phases 1-5 planned)
+
 - Files to inspect when working on features or bugs:
-  - `qa_bugs/cli/cli.py` (orchestration)
+  - `qa_bugs/cli/cli.py` (CLI orchestration)
+  - `qa_bugs/ui/app.py` (Streamlit UI)
+  - `qa_bugs/services/analysis_service.py` (core analysis workflow)
   - `qa_bugs/ingest/normalizer.py`, `qa_bugs/ingest/filters.py` (data ingestion)
   - `qa_bugs/metrics/*` (metric implementations)
-  - `qa_bugs/report/builder.py` (report rendering)
+  - `qa_bugs/report/builder.py` (HTML report rendering)
   - `qa_bugs/llm/service.py`, `qa_bugs/prompts/` (LLM behavior)
+  - `qa_bugs/services/data_profiler.py` (AI data classification)
+
+**Documentation Files:**
+- `README.md` - Main user guide
+- `docs/AUTO_MAPPING.md` - Automatic field detection
+- `docs/LLM_PROVIDERS.md` - LLM configuration
+- `docs/AI_DATA_ANALYSIS_LAYER.md` - MVP roadmap and implementation tracker
+- `STREAMLIT_DEPLOYMENT.md` - UI deployment guide
 
 If anything here is unclear or you need more specifics (tests, sample config fields, or examples of adding a metric), tell me which area to expand.

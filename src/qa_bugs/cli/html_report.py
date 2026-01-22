@@ -28,8 +28,13 @@ ul{padding-left:18px}
 .insight p{font-size:0.85rem;line-height:1.25rem;margin:0 0 6px 0;color:#334155}
 .chart-half-right{display:flex;}
 .chart-half-right .inner{flex:0 0 50%;margin-left:auto;}
+.profile-section{background:#f0f9ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin:10px 0;font-size:0.85rem}
+.profile-section h4{margin:0 0 8px 0;color:#1e40af;font-size:0.9rem}
+.profile-section .badge{display:inline-block;background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;margin:2px;font-size:0.75rem}
+.profile-section .confidence{color:#16a34a;font-weight:600}
 </style></head><body>
 <h1>{{ title }}</h1>
+{% if data_profile_html %}{{ data_profile_html | safe }}{% endif %}
 {% if summary_kpi_html %}{{ summary_kpi_html | safe }}{% endif %}
 {% if overall_html %}<div class='card'>{{ overall_html | safe }}</div>{% endif %}
 {% for mid in metric_order %}
@@ -98,6 +103,9 @@ class HTMLReportGenerator:
 
         # Build summary KPI HTML
         summary_kpi_html = self._build_summary_kpis(kpi_data)
+        
+        # Build data profile HTML
+        data_profile_html = self._build_data_profile(result.data_profile) if result.data_profile else ""
 
         # Format insights
         insights_html = self._format_insights(result.metric_insights)
@@ -114,6 +122,7 @@ class HTMLReportGenerator:
         tpl = Template(HTML_TEMPLATE)
         return tpl.render(
             title=final_title,
+            data_profile_html=data_profile_html,
             summary_kpi_html=summary_kpi_html,
             overall_html=overall_html,
             figures=figures,
@@ -329,6 +338,68 @@ class HTMLReportGenerator:
             f"<div class='item'><b>Avg Closed Age</b><div>{fmt_days(kpi_data['avg_age_closed'])}</div></div>"
             "</div></div>"
         )
+    
+    def _build_data_profile(self, profile: "DataProfile") -> str:
+        """Build data profile card HTML showing AI classifications."""
+        if not profile:
+            return ""
+        
+        lines = [f"<div class='card'><h2>🤖 AI Data Understanding <span class='confidence'>({profile.overall_confidence:.0%} confidence)</span></h2>"]
+        
+        # Status classification
+        if profile.status_profile:
+            sp = profile.status_profile
+            lines.append("<div class='profile-section'>")
+            lines.append(f"<h4>Status Classification ({sp.method_used})</h4>")
+            
+            if sp.open_statuses:
+                lines.append("<div><b>Open:</b> ")
+                for s in sp.open_statuses:
+                    lines.append(f"<span class='badge'>{s}</span>")
+                lines.append("</div>")
+            
+            if sp.closed_statuses:
+                lines.append("<div><b>Closed:</b> ")
+                for s in sp.closed_statuses:
+                    lines.append(f"<span class='badge'>{s}</span>")
+                lines.append("</div>")
+            
+            if sp.rejected_statuses:
+                lines.append("<div><b>Rejected:</b> ")
+                for s in sp.rejected_statuses:
+                    lines.append(f"<span class='badge'>{s}</span>")
+                lines.append("</div>")
+            
+            if sp.warnings:
+                lines.append("<div style='margin-top:8px;color:#dc2626;font-size:0.8rem'>")
+                for warning in sp.warnings:
+                    lines.append(f"⚠ {warning}<br>")
+                lines.append("</div>")
+            
+            lines.append("</div>")
+        
+        # Environment classification
+        if profile.environment_profile:
+            ep = profile.environment_profile
+            if ep.all_environments:
+                lines.append("<div class='profile-section'>")
+                lines.append(f"<h4>Environments ({ep.method_used})</h4>")
+                lines.append(f"<div><b>Discovered:</b> {', '.join(ep.all_environments)}</div>")
+                if ep.production_envs:
+                    lines.append(f"<div><b>Production:</b> {', '.join(ep.production_envs)}</div>")
+                lines.append("</div>")
+        
+        # Metric applicability
+        if profile.missing_requirements:
+            lines.append("<div class='profile-section'>")
+            lines.append("<h4>⚠ Metrics with Missing Data</h4>")
+            for metric_id, fields in profile.missing_requirements.items():
+                lines.append(f"<div>• <b>{metric_id}:</b> missing {', '.join(fields)}</div>")
+            lines.append("</div>")
+        
+        lines.append("</div>")
+        
+        return "".join(lines)
 
     def _format_insights(self, insights: Dict[str, str]) -> Dict[str, str]:
         """Format all metric insights."""

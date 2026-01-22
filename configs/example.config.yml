@@ -28,6 +28,49 @@ auto_mapping:
   #   - Analysis will fail if required fields not detected
   #   - Detected mapping overrides manual fields_mapping above  
 
+# Automatic environment value mapping (optional)
+# When enabled, analyzes unique environment values and maps them to standard categories
+auto_env_mapping:
+  enabled: false  # Set to true to enable auto-detection
+  allow_passthrough: true  # If true, unmapped values stay as-is; if false, they cause errors
+  target_categories: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"]
+  # Usage:
+  #   CLI: --auto-map-env flag overrides this setting
+  #   UI: Toggle "Auto-map environment values" in sidebar
+  # Notes:
+  #   - Requires LLM to be enabled for intelligent classification
+  #   - Falls back to fuzzy keyword matching if LLM unavailable
+  #   - Maps values like "production" → "PROD", "testing" → "QA", etc.
+  #   - New unmapped categories are added to env_order automatically
+
+# Manual environment value mapping (optional)
+# Explicitly define value transformations (applied before auto-mapping if both enabled)
+env_value_mapping:
+  # Example mappings:
+  # PRODUCTION: PROD
+  # "prod-server": PROD
+  # testing: QA
+  # "qa-env": QA
+  # development: DEV
+
+# Automatic semantic classification (optional)
+# When enabled, AI analyzes data to classify statuses, priorities, and environments
+auto_classification:
+  enabled: false  # Set to true to enable AI-powered classification
+  classify_statuses: true  # Classify statuses into open/closed/rejected
+  classify_priorities: true  # Order priorities by severity
+  classify_environments: true  # Classify environments into prod/non-prod
+  require_manual_review: false  # If true, show classification but don't auto-apply
+  confidence_threshold: 0.6  # Minimum confidence (0.0-1.0) to auto-apply
+  # Usage:
+  #   CLI: --auto-classify flag overrides this setting
+  #   UI: Toggle "Auto-classify data" in sidebar
+  # Notes:
+  #   - Requires LLM to be enabled for intelligent classification
+  #   - Falls back to fuzzy keyword matching if LLM unavailable
+  #   - Classifications shown in report with confidence scores
+  #   - Eliminates need for hardcoded status lists in metric configs
+
 metrics:
   enabled:
     - leakage_rate
@@ -44,12 +87,13 @@ metrics:
     defect_age:
       open_statuses: ["Funnel","Analysis","In Progress","Ready for QA","QA","Ready for Production"]    
     leakage_rate:
-      intended_env: ["QA"]
-      leak_envs: ["Prod"]
+      intended_env: ["QA"]  # Standard category after auto-mapping (Testing → QA)
+      leak_envs: ["PROD"]  # Standard category after auto-mapping (Production → PROD)
     rejection_rate:
       rejected_statuses: ["Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX"]
-    defects_by_env_priority:
-      env_order: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"]
+    # defects_by_env_priority:
+    #   # No env_order needed - environments are discovered from data
+    #   # and ordered by defect count (descending)
     status_by_severity:
       open_statuses: ["Funnel", "Analysis", "To Do", "In Progress", "Blocked / On Hold", "Ready for Production"]
       closed_statuses: ["Done", "Cancelled"]

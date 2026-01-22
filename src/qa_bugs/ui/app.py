@@ -22,7 +22,16 @@ if str(src_path) not in sys.path:
 
 from qa_bugs.services import AnalysisService, AnalysisConfig, get_storage_service
 from qa_bugs.ingest.field_mapper import FieldMappingService
+from qa_bugs.ingest.env_value_mapper import EnvironmentValueMapper
+from qa_bugs.ingest.normalizer import Normalizer
 from qa_bugs.ui.components.results_display import display_results
+import base64
+
+
+def get_base64_icon(icon_path: Path) -> str:
+    """Convert icon file to base64 string for inline HTML display."""
+    with open(icon_path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
 
 
 def setup_logging(log_dir: Path):
@@ -51,9 +60,12 @@ def setup_logging(log_dir: Path):
 
 
 # Page configuration
+# Use bug.ico from ui/static folder
+icon_path = Path(__file__).parent / "static" / "bug.ico"
+
 st.set_page_config(
     page_title="QA Bugs Analytics",
-    page_icon="🐛",
+    page_icon=str(icon_path) if icon_path.exists() else "🐛",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -93,94 +105,59 @@ def get_secret(key: str, default=None):
 
 def main():
     """Main Streamlit application."""
-    st.title("🐛 QA Bugs Analytics")
-    st.markdown("""
-    Upload your JIRA CSV export to analyze defects and generate insights.
-    """)
+    # Display icon and title together
+    from pathlib import Path
+    icon_path = Path(__file__).parent / "static" / "bug.ico"
+    
+    # Use markdown with inline image for better alignment
+    if icon_path.exists():
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <img src="data:image/x-icon;base64,{get_base64_icon(icon_path)}" width="40" style="margin-bottom: 10px;">
+                <h1 style="margin: 0;">QA Bugs Analytics</h1>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.title("🐛 QA Bugs Analytics")
+    
+    st.markdown("Upload your JIRA CSV export to analyze defects and generate insights.")
+    st.markdown("---")
 
     # Initialize session state for controlling expanders
     if 'analysis_started' not in st.session_state:
         st.session_state['analysis_started'] = False
 
-    # Security warning
-    st.warning("""
-    ⚠️ **Data Privacy Notice**
-
-    - **Do NOT upload files containing sensitive personal data** (PII, credentials, etc.)
-    - Uploaded data will be processed by AI models (LLM) for insights generation
-    - Data may traverse non-secured infrastructure during processing
-    - Ensure your CSV files are anonymized and comply with your organization's data policies
-    """)
-
     # Sidebar for additional info
     with st.sidebar:
-        st.header("About")
-        st.info("""
-        This tool analyzes JIRA defect data and provides:
-        - Defect age distribution
-        - Leakage rate analysis
-        - Rejection rate tracking
-        - Cumulative open/closed trends
-        - Status by severity breakdown
-        - Environment & priority analysis
-        - AI-powered insights
-        """)
-
-        st.header("Configuration")
-        config = load_config()
-        st.write(f"**Enabled Metrics:** {len(config.enabled_metrics)}")
-        st.write(f"**LLM Insights:** {'✓ Enabled' if config.llm.enabled else '✗ Disabled'}")
-        
-        # Auto-mapping toggle
-        st.divider()
-        st.header("⚙️ Field Mapping")
-        
-        auto_map_enabled = st.checkbox(
-            "Auto-detect fields",
-            value=True,  # Enabled by default
-            help="Use AI to automatically detect field mapping from CSV headers"
-        )
-        
-        if auto_map_enabled:
-            st.info("""
-            **Auto-mapping enabled:**
-            - LLM will analyze your CSV headers
-            - Required fields must be detected
-            - Analysis won't start if fields missing
-            """)
-        else:
-            st.info("""
-            **Manual mapping:**
-            - Using config file mapping
-            - Ensure fields_mapping is configured
-            """)
-
-        st.divider()
-
-        st.header("🔒 Data Security")
+        st.header("⚠️ Data Privacy Notice")
         st.warning("""
-        **Important:**
-        - Anonymize sensitive data before upload
-        - LLM processing enabled
-        - No data stored permanently
+        - **Do NOT upload files containing sensitive personal data** (PII, credentials, etc.)
+        - Uploaded data will be processed by AI models (LLM) for insights generation
+        - Data may traverse non-secured infrastructure during processing
         """)
+
+        st.divider()
+        
+        st.header("📋 Quick Reference")
+        st.info("""
+        **Your CSV needs these fields:**
+        - key
+        - created_at
+        - status
+        - priority
+        - resolved_at
+        - environment
+        """)
+        
+        st.page_link("pages/guide.py", label="View User Guide", icon="📖")
+
+    # Load config for use in analysis
+    config = load_config()
 
     # Main content area
-    st.info("""
-    **📋 Required CSV Fields:**
-    Your CSV file must contain columns that can be mapped to these fields:
-    
-    **Core fields (always required):**
-    - **key** - Unique defect/issue identifier
-    - **created_at** - Creation date/timestamp
-    - **status** - Current status (e.g., Open, Closed, In Progress)
-    - **priority** - Priority level (e.g., High, Medium, Low)
-    
-    **Required for specific metrics:**
-    - **resolved_at** - Resolution date (needed for: defect_age, cumulative_open_closed, age_by_priority)
-    - **environment** - Environment where defect found (needed for: leakage_rate, defects_by_env_priority)
-    """)
-    
     uploaded_file = st.file_uploader(
         "📤 Upload JIRA CSV File (anonymized, no PII, max 5MB)",
         type=["csv"],
@@ -192,6 +169,7 @@ def main():
         if 'last_uploaded_file' not in st.session_state or st.session_state['last_uploaded_file'] != uploaded_file.name:
             st.session_state['analysis_started'] = False
             st.session_state['last_uploaded_file'] = uploaded_file.name
+            st.session_state['has_mapping_issues'] = False  # Reset mapping issues flag
             if 'analysis_result' in st.session_state:
                 del st.session_state['analysis_result']
         
@@ -248,12 +226,15 @@ def main():
             return
 
         # Master collapsible section for all configuration (can be hidden for PDF export)
-        # Collapse automatically after analysis runs
-        show_config_expanded = not st.session_state.get('analysis_started', False)
+        # Collapsed by default, expanded only if there are mapping errors/warnings
+        has_mapping_issues = False
         
         # Handle field mapping
         final_config = config
         mapping_result = None
+        
+        # Auto-mapping is enabled by default
+        auto_map_enabled = True
         
         # Cache field mapping detection in session state
         if auto_map_enabled:
@@ -307,10 +288,11 @@ def main():
                     logging.info(f"Field mapping cached for file: {uploaded_file.name}")
             else:
                 # Use cached result
-                mapping_result = st.session_state['field_mapping_result']
+                mapping_result = st.session_state.get('field_mapping_result')
                 logging.info(f"Using cached field mapping for: {uploaded_file.name}")
         
-        with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=show_config_expanded):
+        # Always collapse this section by default after file upload
+        with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=False):
             # File info section
             st.markdown("### 📤 Upload Information")
             st.success(f"✓ File uploaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")
@@ -355,6 +337,8 @@ def main():
                         project=config.project,
                         fields_mapping=mapping_result.mapping,
                         auto_mapping=config.auto_mapping,
+                        auto_env_mapping=config.auto_env_mapping,
+                        env_value_mapping=config.env_value_mapping,
                         enabled_metrics=config.enabled_metrics,
                         metric_params=config.metric_params,
                         exclude_statuses=config.exclude_statuses,
@@ -389,6 +373,99 @@ def main():
             
             st.divider()
             
+            # Environment value mapping section
+            env_mapping_result = None
+            auto_map_env_enabled = True  # Enabled by default
+            if auto_map_env_enabled:
+                st.markdown("### 🌍 Environment Value Mapping")
+                
+                # Extract environment column from raw DF (before any normalization)
+                # We need original values like "Production", not "PRODUCTION"
+                env_col = final_config.fields_mapping.get('environment')
+                if env_col and env_col in df.columns:
+                    unique_envs = df[env_col].dropna().unique().tolist()
+                    
+                    if unique_envs:
+                        # Cache environment mapping in session state
+                        env_cache_key = f"{uploaded_file.name}_env_{','.join(sorted(unique_envs[:5]))}"
+                        
+                        if 'env_mapping_cache_key' not in st.session_state or st.session_state['env_mapping_cache_key'] != env_cache_key:
+                            with st.spinner("Analyzing environment values..."):
+                                # Initialize LLM service if needed (reuse if already created)
+                                llm_service = None
+                                if config.llm.enabled:
+                                    from qa_bugs.llm.service import LLMService
+                                    llm_dict = {
+                                        "enabled": True,
+                                        "prompts_dir": config.llm.prompts_dir,
+                                        "provider": config.llm.provider,
+                                        "endpoint": config.llm.endpoint,
+                                        "deployment": config.llm.deployment,
+                                        "api_version": config.llm.api_version,
+                                        "temperature": 0.1,
+                                        "max_tokens": 1000,
+                                        "debug": config.llm.debug,
+                                    }
+                                    llm_service = LLMService(llm_dict)
+                                
+                                # Initialize environment mapper
+                                env_mapper = EnvironmentValueMapper(
+                                    llm_service=llm_service,
+                                    target_categories=getattr(config.auto_env_mapping, 'target_categories', None)
+                                )
+                                
+                                # Auto-map values
+                                env_mapping_result = env_mapper.auto_map_values(
+                                    unique_values=unique_envs,
+                                    allow_passthrough=getattr(config.auto_env_mapping, 'allow_passthrough', True)
+                                )
+                                
+                                # Cache result
+                                st.session_state['env_mapping_result'] = env_mapping_result
+                                st.session_state['env_mapping_cache_key'] = env_cache_key
+                                logging.info(f"Environment mapping cached for file: {uploaded_file.name}")
+                        else:
+                            # Use cached result
+                            env_mapping_result = st.session_state['env_mapping_result']
+                            logging.info(f"Using cached environment mapping for: {uploaded_file.name}")
+                        
+                        # Display mapping result
+                        if env_mapping_result.success:
+                            st.success(f"✅ Environment values mapped successfully ({env_mapping_result.method_used})!")
+                            
+                            # Show mappings (only transformations)
+                            transformations = {k: v for k, v in env_mapping_result.value_mapping.items() if k.upper() != v}
+                            if transformations:
+                                show_env_mapping = st.toggle("Show environment value mappings", value=False)
+                                if show_env_mapping:
+                                    mapping_df = pd.DataFrame([
+                                        {"Original Value": k, "Mapped To": v}
+                                        for k, v in sorted(transformations.items())
+                                    ])
+                                    st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("All environment values already in standard format (no transformations needed)")
+                            
+                            # Show warnings
+                            if env_mapping_result.warnings:
+                                for warning in env_mapping_result.warnings:
+                                    st.warning(warning)
+                            
+                            # Update config with environment value mapping
+                            final_config.env_value_mapping = env_mapping_result.value_mapping
+                            logging.info(f"UI: Updated final_config.env_value_mapping with {len(env_mapping_result.value_mapping)} mappings")
+                            logging.info(f"UI: Mapping details: {env_mapping_result.value_mapping}")
+                        else:
+                            st.error("❌ Environment value mapping failed")
+                            for error in env_mapping_result.errors:
+                                st.error(f"• {error}")
+                    else:
+                        st.info("No environment values found in data")
+                else:
+                    st.warning("⚠️ Environment column not found in data - skipping environment value mapping")
+            
+            st.divider()
+            
             # Date range filters section
             st.markdown("### ⚙️ Date Filters (Optional)")
             col1, col2 = st.columns(2)
@@ -418,6 +495,13 @@ def main():
                     # Setup logging
                     log_file = setup_logging(output_dir)
                     logging.info(f"Starting analysis run with {len(df)} records")
+                    auto_classify_enabled = True  # Enabled by default
+                    logging.info(f"Auto-classify enabled: {auto_classify_enabled}")
+                    logging.info(f"Final config env_value_mapping: {final_config.env_value_mapping}")
+                    logging.info(f"Final config fields_mapping: {final_config.fields_mapping}")
+                    
+                    # Update config with auto-classify toggle from UI
+                    final_config.auto_classification.enabled = auto_classify_enabled
                     
                     # Run analysis with final config (may have updated mapping)
                     service = AnalysisService(final_config)

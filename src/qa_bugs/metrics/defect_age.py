@@ -1,11 +1,12 @@
 import pandas as pd
+from typing import Optional
 from .base import Metric, MetricResult, _df_to_records_json_safe
 
 class DefectAge(Metric):
     id = "defect_age"
     display_name = "Defect Age Distribution"
 
-    def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
+    def compute(self, df: pd.DataFrame, cfg: dict, profile: Optional["DataProfile"] = None) -> MetricResult:
         """Compute aggregated age statistics.
 
         Previous implementation returned a raw per-defect table ("defect_age"). To
@@ -14,6 +15,8 @@ class DefectAge(Metric):
         - age_by_priority: per-priority distribution (count, avg_age, p50, p90, max_age)
         - oldest_samples: top 5 oldest defects (key, priority, age_days) for context
         Raw rows are intentionally omitted.
+        
+        If DataProfile is provided, uses AI-classified open_statuses instead of config.
         """
         d = df.copy()
         # Normalize timestamps: read as tz-aware (UTC) then drop tz -> naive UTC

@@ -3,6 +3,7 @@ import streamlit as st
 from typing import Optional
 from qa_bugs.services.models import AnalysisResult, AnalysisConfig
 from qa_bugs.services.kpi_calculator import SummaryKPIs
+from qa_bugs.services.data_profiler import DataProfile, StatusProfile, PriorityProfile, EnvironmentProfile
 from qa_bugs.metrics import METRICS
 
 
@@ -152,6 +153,123 @@ def _display_summary_kpis(kpis: SummaryKPIs):
     st.markdown(kpi_html, unsafe_allow_html=True)
 
 
+def _display_data_profile(profile: DataProfile):
+    """
+    Display AI Data Profiler results in an expandable section.
+    
+    Args:
+        profile: DataProfile containing AI-classified semantics
+    """
+    with st.expander("🧠 **AI Data Profile** - Semantic Understanding", expanded=False):
+        st.markdown("""
+        The AI Data Profiler automatically analyzed your data to understand its semantic meaning.
+        This helps optimize metric calculations and provide better insights.
+        """)
+        
+        # Overall confidence
+        confidence_pct = profile.overall_confidence * 100
+        confidence_color = "🟢" if confidence_pct >= 80 else "🟡" if confidence_pct >= 60 else "🔴"
+        st.metric("Overall Confidence", f"{confidence_color} {confidence_pct:.0f}%")
+        
+        # Create tabs for different profile sections
+        tabs = st.tabs(["📊 Status", "⚠️ Priority", "🌍 Environment", "📋 Summary"])
+        
+        # Status Profile Tab
+        with tabs[0]:
+            if profile.status_profile:
+                sp = profile.status_profile
+                st.markdown(f"**Classification Method:** {sp.method_used.upper()} (Confidence: {sp.confidence*100:.0f}%)")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown("**✅ Open Statuses**")
+                    for status in sp.open_statuses:
+                        st.markdown(f"- `{status}`")
+                
+                with col2:
+                    st.markdown("**✔️ Closed Statuses**")
+                    for status in sp.closed_statuses:
+                        st.markdown(f"- `{status}`")
+                
+                with col3:
+                    st.markdown("**❌ Rejected Statuses**")
+                    for status in sp.rejected_statuses:
+                        st.markdown(f"- `{status}`")
+                
+                if sp.warnings:
+                    st.warning("⚠️ **Warnings:**\n" + "\n".join(f"- {w}" for w in sp.warnings))
+            else:
+                st.info("Status classification not performed")
+        
+        # Priority Profile Tab
+        with tabs[1]:
+            if profile.priority_profile:
+                pp = profile.priority_profile
+                st.markdown(f"**Classification Method:** {pp.method_used.upper()} (Confidence: {pp.confidence*100:.0f}%)")
+                
+                st.markdown("**Severity Order** (Highest → Lowest):")
+                for idx, priority in enumerate(pp.severity_order, 1):
+                    emoji = "🔴" if idx == 1 else "🟠" if idx == 2 else "🟡" if idx == 3 else "🟢"
+                    st.markdown(f"{idx}. {emoji} `{priority}`")
+                
+                if pp.warnings:
+                    st.warning("⚠️ **Warnings:**\n" + "\n".join(f"- {w}" for w in pp.warnings))
+            else:
+                st.info("Priority classification not performed")
+        
+        # Environment Profile Tab
+        with tabs[2]:
+            if profile.environment_profile:
+                ep = profile.environment_profile
+                st.markdown(f"**Classification Method:** {ep.method_used.upper()} (Confidence: {ep.confidence*100:.0f}%)")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**🚀 Production Environments**")
+                    for env in ep.production_envs:
+                        st.markdown(f"- `{env}`")
+                
+                with col2:
+                    st.markdown("**🔧 Non-Production Environments**")
+                    for env in ep.non_production_envs:
+                        st.markdown(f"- `{env}`")
+                
+                st.markdown("**Pipeline Order** (Development → Production):")
+                pipeline_str = " → ".join(f"`{env}`" for env in ep.pipeline_order)
+                st.markdown(pipeline_str)
+                
+                if ep.warnings:
+                    st.warning("⚠️ **Warnings:**\n" + "\n".join(f"- {w}" for w in ep.warnings))
+            else:
+                st.info("Environment classification not performed")
+        
+        # Summary Tab
+        with tabs[3]:
+            st.markdown("**📁 Available Fields:**")
+            st.write(", ".join(f"`{field}`" for field in profile.available_fields))
+            
+            st.markdown("**📊 Field Completeness:**")
+            completeness_data = [
+                {"Field": field, "Completeness": f"{pct:.1f}%"}
+                for field, pct in sorted(profile.field_completeness.items(), key=lambda x: x[1], reverse=True)
+            ]
+            st.dataframe(completeness_data, use_container_width=True, hide_index=True)
+            
+            if profile.date_range:
+                st.markdown(f"**📅 Date Range:** {profile.date_range[0]} to {profile.date_range[1]}")
+            
+            if profile.applicable_metrics:
+                st.markdown("**✅ Applicable Metrics:**")
+                st.write(", ".join(f"`{m}`" for m in profile.applicable_metrics))
+            
+            if profile.missing_requirements:
+                st.markdown("**⚠️ Missing Requirements for Some Metrics:**")
+                for metric, reqs in profile.missing_requirements.items():
+                    st.markdown(f"- `{metric}`: Missing {', '.join(f'`{r}`' for r in reqs)}")
+
+
 def display_results(result: AnalysisResult, config: AnalysisConfig):
     """
     Display analysis results in Streamlit.
@@ -160,6 +278,10 @@ def display_results(result: AnalysisResult, config: AnalysisConfig):
         result: AnalysisResult from analysis service
         config: AnalysisConfig used for analysis
     """
+    # Display AI Data Profile if available (at the top)
+    if result.data_profile:
+        _display_data_profile(result.data_profile)
+    
     # Display overall summary if available
     if result.overall_summary:
         st.subheader("🤖 AI Summary")

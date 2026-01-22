@@ -83,6 +83,34 @@ class LeakageRate(Metric):
         intended_envs = [str(x).upper() for x in intended_envs if x is not None]
         leak_envs = [str(x).upper() for x in leak_envs if x is not None]
 
+        # Validate that configured environments exist in the data
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Collect all unique environments from data
+        token_counter = Counter()
+        for tokens in env_lists:
+            token_counter.update(tokens)
+        actual_envs = set(token_counter.keys())
+        
+        # Warn about missing intended_envs
+        if intended_envs:
+            missing_intended = set(intended_envs) - actual_envs
+            if missing_intended:
+                logger.warning(
+                    f"Leakage Rate: intended_env contains environments not found in data: {missing_intended}. "
+                    f"Available environments: {sorted(actual_envs)}"
+                )
+        
+        # Warn about missing leak_envs
+        if leak_envs:
+            missing_leak = set(leak_envs) - actual_envs
+            if missing_leak:
+                logger.warning(
+                    f"Leakage Rate: leak_envs contains environments not found in data: {missing_leak}. "
+                    f"Available environments: {sorted(actual_envs)}"
+                )
+
         # 4) Leakage mask (multi-env aware)
         if leak_envs:
             leaked_mask = env_lists.apply(lambda tokens: any(t in leak_envs for t in tokens))
@@ -118,10 +146,13 @@ class LeakageRate(Metric):
         )
 
         # 6) Debug table (environment token distribution)
-        token_counter = Counter()
-        for tokens in env_lists:
-            token_counter.update(tokens)
-        env_counts_preview = "; ".join(f"{k}:{v}" for k, v in token_counter.most_common(5)) or ""
+        env_counts_preview = "; ".join(f"{k}:{v}" for k, v in token_counter.most_common(10)) or "(no env values)"
+        
+        # Enhanced debug info
+        logger.info(f"Leakage Rate Debug - Config: intended_env={intended_envs}, leak_envs={leak_envs}")
+        logger.info(f"Leakage Rate Debug - Environment distribution: {dict(token_counter)}")
+        logger.info(f"Leakage Rate Debug - Total: {total}, Leaked: {leaked}, Caught: {caught}, Rate: {leakage_pct}%")
+        
         debug = pd.DataFrame(
             {
                 "phase": ["initial", "after_status_filter", "final"],

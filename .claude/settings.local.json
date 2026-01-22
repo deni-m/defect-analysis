@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_status_by_severity.py -v)",
+      "Bash(python:*)",
+      "Bash(xargs cat:*)",
+      "Bash(xargs -I {} sh -c 'echo \"\"\"\"=== {} ===\"\"\"\" && grep -E \"\"\"\"error:|RESPONSE\"\"\"\" {} | head -5')",
+      "Bash(copy:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

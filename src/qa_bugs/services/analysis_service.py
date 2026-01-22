@@ -8,6 +8,7 @@ import pandas as pd
 
 from qa_bugs.services.models import AnalysisConfig, AnalysisResult
 from qa_bugs.services.kpi_calculator import calculate_summary_kpis
+from qa_bugs.services.data_profiler import DataProfiler
 from qa_bugs.ingest.normalizer import Normalizer
 from qa_bugs.ingest.filters import apply_filters
 from qa_bugs.metrics import METRICS
@@ -68,8 +69,33 @@ class AnalysisService:
         until_date = self._parse_date(until) if until else None
 
         # Step 1: Normalize DataFrame
-        normalizer = Normalizer(mapping=self.config.fields_mapping)
+        normalizer = Normalizer(
+            mapping=self.config.fields_mapping,
+            env_value_mapping=self.config.env_value_mapping
+        )
         df_normalized = normalizer.normalize(df)
+
+        # Step 1.5: Profile data for semantic understanding (if enabled)
+        data_profile = None
+        if self.config.auto_classification.enabled:
+            # Initialize LLM service for profiling if needed
+            llm_service = None
+            should_use_llm = llm_enabled if llm_enabled is not None else self.config.llm.enabled
+            if should_use_llm:
+                llm_service = self._create_llm_service()
+            
+            profiler = DataProfiler(llm_service=llm_service)
+            data_profile = profiler.profile_data(
+                df_normalized,
+                config=self.config.to_legacy_dict(),
+                classify_statuses=self.config.auto_classification.classify_statuses,
+                classify_priorities=self.config.auto_classification.classify_priorities,
+                classify_environments=self.config.auto_classification.classify_environments
+            )
+            
+            # Auto-apply classifications if confidence is high enough and manual review not required
+            if not self.config.auto_classification.require_manual_review:
+                self._apply_profile_to_config(data_profile)
 
         # Step 2: Apply filters
         df_filtered = apply_filters(
@@ -89,7 +115,7 @@ class AnalysisService:
 
         # Step 3: Compute metrics
         # Note: rejection_rate needs date-filtered but not status-filtered data
-        metrics_results = self._compute_metrics(df_filtered, df_unfiltered=df_date_filtered)
+        metrics_results = self._compute_metrics(df_filtered, df_unfiltered=df_date_filtered, profile=data_profile)
 
         # Step 4: Generate LLM insights (if enabled)
         should_use_llm = llm_enabled if llm_enabled is not None else self.config.llm.enabled
@@ -123,16 +149,18 @@ class AnalysisService:
             summary_kpis=summary_kpis,
             metric_insights=metric_insights,
             overall_summary=overall_summary,
+            data_profile=data_profile,
             metadata=metadata
         )
 
-    def _compute_metrics(self, df: pd.DataFrame, df_unfiltered: pd.DataFrame = None) -> Dict[str, "MetricResult"]:
+    def _compute_metrics(self, df: pd.DataFrame, df_unfiltered: pd.DataFrame = None, profile: "DataProfile" = None) -> Dict[str, "MetricResult"]:
         """
         Compute all enabled metrics.
 
         Args:
             df: Filtered and normalized DataFrame (for most metrics)
             df_unfiltered: Unfiltered normalized DataFrame (for metrics like rejection_rate that need all data)
+            profile: Optional DataProfile with AI classifications
 
         Returns:
             Dictionary of metric_id -> MetricResult
@@ -162,8 +190,14 @@ class AnalysisService:
             # Other metrics use filtered data to analyze valid bug lifecycle
             data_for_metric = df_unfiltered if (metric_id == "rejection_rate" and df_unfiltered is not None) else df
 
-            # Compute metric
-            result = metric_cls().compute(data_for_metric, merged_params)
+            # Compute metric - pass profile if metric supports it
+            try:
+                # Try calling with profile parameter (new signature)
+                result = metric_cls().compute(data_for_metric, merged_params, profile=profile)
+            except TypeError:
+                # Fallback to old signature without profile (backward compatibility)
+                result = metric_cls().compute(data_for_metric, merged_params)
+            
             results[metric_id] = result
 
         return results
@@ -237,3 +271,45 @@ class AnalysisService:
         if isinstance(date_input, str):
             return datetime.strptime(date_input, "%Y-%m-%d").date()
         raise ValueError(f"Invalid date format: {date_input}")
+    
+    def _create_llm_service(self) -> "LLMService":
+        """Create LLMService instance from config."""
+        llm_config_dict = {
+            "enabled": self.config.llm.enabled,
+            "prompts_dir": self.config.llm.prompts_dir,
+            "provider": self.config.llm.provider,
+            "endpoint": self.config.llm.endpoint,
+            "deployment": self.config.llm.deployment,
+            "api_version": self.config.llm.api_version,
+            "temperature": 0.1,  # Lower temperature for classification
+            "max_tokens": 1000,
+            "debug": self.config.llm.debug,
+        }
+        return LLMService(llm_config_dict)
+    
+    def _apply_profile_to_config(self, profile: "DataProfile") -> None:
+        """Apply profile classifications to config if confidence is high enough."""
+        threshold = self.config.auto_classification.confidence_threshold
+        
+        # Apply status classification
+        if profile.status_profile and profile.status_profile.confidence >= threshold:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Auto-applying status classification (confidence: {profile.status_profile.confidence:.0%}): "
+                f"open={len(profile.status_profile.open_statuses)}, "
+                f"closed={len(profile.status_profile.closed_statuses)}, "
+                f"rejected={len(profile.status_profile.rejected_statuses)}"
+            )
+            
+            # Update metric params with classified statuses
+            # This affects metrics that use open_statuses, rejected_statuses, etc.
+            if "defect_age" in self.config.metric_params:
+                self.config.metric_params["defect_age"]["open_statuses"] = profile.status_profile.open_statuses
+            
+            if "status_by_severity" in self.config.metric_params:
+                self.config.metric_params["status_by_severity"]["open_statuses"] = profile.status_profile.open_statuses
+                self.config.metric_params["status_by_severity"]["closed_statuses"] = profile.status_profile.closed_statuses
+            
+            if "rejection_rate" in self.config.metric_params:
+                self.config.metric_params["rejection_rate"]["rejected_statuses"] = profile.status_profile.rejected_statuses

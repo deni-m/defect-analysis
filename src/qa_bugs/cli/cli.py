@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from qa_bugs.services import AnalysisService, AnalysisConfig
 from qa_bugs.ingest.field_mapper import FieldMappingService
+from qa_bugs.ingest.env_value_mapper import EnvironmentValueMapper
 from qa_bugs.cli.html_report import HTMLReportGenerator
 
 # Load .env with override=True so .env file takes priority over system environment variables
@@ -60,6 +61,8 @@ def run(
     until: str = typer.Option(None, "--until", help="YYYY-MM-DD filter (created until)"),
     llm: str = typer.Option("on", "--llm", help="on/off LLM analysis"),
     auto_map: bool = typer.Option(False, "--auto-map", help="Auto-detect field mapping using LLM"),
+    auto_map_env: bool = typer.Option(False, "--auto-map-env", help="Auto-map environment values to standard categories"),
+    auto_classify: bool = typer.Option(False, "--auto-classify", help="Auto-classify statuses, priorities using AI"),
     header_prefix: str = typer.Option(None, "--header-prefix", help="Optional prefix for report header"),
 ):
     """Run bug analytics analysis and generate HTML report."""
@@ -137,6 +140,106 @@ def run(
         
         # Override config with detected mapping
         analysis_config.fields_mapping = validation_result.mapping
+
+    # Handle environment value auto-mapping if enabled (CLI flag overrides config)
+    auto_env_config = getattr(analysis_config, 'auto_env_mapping', None)
+    if auto_map_env or (auto_env_config and auto_env_config.enabled):
+        # First, normalize fields to access environment column
+        from qa_bugs.ingest.normalizer import Normalizer
+        normalizer_temp = Normalizer(
+            analysis_config.fields_mapping,
+            env_value_mapping=getattr(analysis_config, 'env_value_mapping', {})
+        )
+        df_temp = normalizer_temp.normalize(df_raw)
+        
+        if "environment" in df_temp.columns:
+            # Get unique environment values
+            unique_envs = df_temp["environment"].dropna().unique().tolist()
+            
+            if unique_envs:
+                typer.echo("Auto-mapping environment values...")
+                logging.info(f"Starting environment value mapping for {len(unique_envs)} unique values")
+                
+                # Initialize LLM service if needed
+                llm_enabled = llm.lower() == "on" and analysis_config.llm.enabled
+                llm_service = None
+                
+                if llm_enabled:
+                    from qa_bugs.llm.service import LLMService
+                    llm_dict = {
+                        "enabled": True,
+                        "prompts_dir": analysis_config.llm.prompts_dir,
+                        "provider": analysis_config.llm.provider,
+                        "endpoint": analysis_config.llm.endpoint,
+                        "deployment": analysis_config.llm.deployment,
+                        "api_version": analysis_config.llm.api_version,
+                        "temperature": 0.1,
+                        "max_tokens": 1000,
+                        "debug": analysis_config.llm.debug,
+                    }
+                    llm_service = LLMService(llm_dict)
+                
+                # Get target categories from config
+                target_categories = None
+                allow_passthrough = True
+                if auto_env_config:
+                    target_categories = getattr(auto_env_config, 'target_categories', None)
+                    allow_passthrough = getattr(auto_env_config, 'allow_passthrough', True)
+                
+                # Initialize environment mapper
+                env_mapper = EnvironmentValueMapper(
+                    llm_service=llm_service,
+                    target_categories=target_categories
+                )
+                
+                # Auto-map values
+                env_result = env_mapper.auto_map_values(
+                    unique_values=unique_envs,
+                    allow_passthrough=allow_passthrough
+                )
+                
+                # Check result
+                if not env_result.success:
+                    typer.echo("")
+                    typer.secho(env_mapper.format_result_message(env_result), fg=typer.colors.RED)
+                    typer.echo("")
+                    typer.secho("❌ Environment value mapping failed", fg=typer.colors.RED)
+                    raise typer.Exit(1)
+                
+                # Display mapping
+                typer.echo("")
+                typer.secho(f"[OK] Environment values mapped successfully ({env_result.method_used}):", fg=typer.colors.GREEN)
+                for orig, mapped in sorted(env_result.value_mapping.items()):
+                    if orig.upper() != mapped:  # Only show transformations
+                        typer.echo(f"  {orig} -> {mapped}")
+                
+                # Show warnings if any
+                if env_result.warnings:
+                    typer.echo("")
+                    typer.secho("[WARNING] Warnings:", fg=typer.colors.YELLOW)
+                    for warning in env_result.warnings:
+                        typer.echo(f"  - {warning}")
+                
+                typer.echo("")
+                
+                # Store mapping in config for normalizer
+                if not hasattr(analysis_config, 'env_value_mapping'):
+                    analysis_config.env_value_mapping = {}
+                analysis_config.env_value_mapping.update(env_result.value_mapping)
+        else:
+            logging.warning("Environment column not found, skipping environment value mapping")
+
+    # Handle auto-classification if enabled (CLI flag overrides config)
+    if auto_classify or (hasattr(analysis_config, 'auto_classification') and analysis_config.auto_classification.enabled):
+        typer.echo("AI data classification enabled - will analyze statuses and priorities...")
+        logging.info("Auto-classification enabled via CLI flag or config")
+        
+        # Ensure auto_classification config exists
+        if not hasattr(analysis_config, 'auto_classification'):
+            from qa_bugs.services.models import AutoClassificationConfig
+            analysis_config.auto_classification = AutoClassificationConfig(enabled=True)
+        else:
+            analysis_config.auto_classification.enabled = True
 
     # Run analysis using service
     typer.echo("Running analysis...")

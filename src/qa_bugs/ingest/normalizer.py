@@ -1,5 +1,6 @@
 import pandas as pd
 import re
+from typing import Optional, Dict
 
 class Normalizer:
     CANON = {
@@ -8,8 +9,16 @@ class Normalizer:
         "environment", "category"
     }
 
-    def __init__(self, mapping: dict):
+    def __init__(self, mapping: dict, env_value_mapping: Optional[Dict[str, str]] = None):
+        """
+        Initialize Normalizer.
+        
+        Args:
+            mapping: Field name mapping (canonical -> CSV column)
+            env_value_mapping: Optional environment value mapping (original_value -> canonical_value)
+        """
         self.mapping = mapping or {}
+        self.env_value_mapping = env_value_mapping or {}
 
     def normalize(self, df: pd.DataFrame) -> pd.DataFrame:
         d = df.copy()
@@ -60,6 +69,26 @@ class Normalizer:
             if col in out_df.columns:
                 out_df[col] = out_df[col].astype("string").fillna(pd.NA)
 
+        # Apply environment value mapping first (before uppercasing)
+        if "environment" in out_df.columns and self.env_value_mapping:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Normalizer: Applying env_value_mapping: {self.env_value_mapping}")
+            unique_before = out_df["environment"].dropna().unique().tolist()
+            logger.info(f"Normalizer: Unique environments BEFORE mapping: {unique_before}")
+            
+            out_df["environment"] = out_df["environment"].map(
+                lambda x: self.env_value_mapping.get(x, x) if pd.notna(x) else x
+            )
+            
+            unique_after = out_df["environment"].dropna().unique().tolist()
+            logger.info(f"Normalizer: Unique environments AFTER mapping: {unique_after}")
+        elif "environment" in out_df.columns:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Normalizer: env_value_mapping is empty or None: {self.env_value_mapping}")
+
+        # Then uppercase all environment values
         if "environment" in out_df.columns:
             out_df["environment"] = out_df["environment"].str.upper()
 
