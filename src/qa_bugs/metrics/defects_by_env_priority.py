@@ -8,6 +8,19 @@ class DefectsByEnvPriority(Metric):
     display_name = "Defects by Environment & Priority"
 
     def compute(self, df: pd.DataFrame, params: dict) -> MetricResult:
+        # Validate required columns
+        if "environment" not in df.columns or "priority" not in df.columns:
+            missing = []
+            if "environment" not in df.columns:
+                missing.append("environment")
+            if "priority" not in df.columns:
+                missing.append("priority")
+            return MetricResult(
+                self.id,
+                tables={"env_priority": pd.DataFrame(columns=["environment", "priority", "count"])},
+                summary=f"Missing required fields: {', '.join(missing)}"
+            )
+        
         # Handle multiple environments per defect (comma-separated)
         df = df.copy()
         df["environment"] = df["environment"].astype(str).str.split(",")

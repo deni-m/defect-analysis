@@ -7,8 +7,22 @@ class AgeByPriority(Metric):
 
     def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
         d = df.copy()
+        
+        # Validate required columns
+        if "created_at" not in d.columns:
+            return MetricResult(
+                self.id,
+                tables={"age_by_priority": pd.DataFrame(columns=["priority", "avg_age", "p50", "count", "p90"])},
+                summary="Missing required field: created_at"
+            )
+        
         d["created_at"]  = pd.to_datetime(d["created_at"],  errors="coerce", utc=True).dt.tz_convert(None)
-        d["resolved_at"] = pd.to_datetime(d["resolved_at"], errors="coerce", utc=True).dt.tz_convert(None)
+        
+        # Check if resolved_at exists, if not create it as null column
+        if "resolved_at" not in d.columns:
+            d["resolved_at"] = pd.NaT
+        else:
+            d["resolved_at"] = pd.to_datetime(d["resolved_at"], errors="coerce", utc=True).dt.tz_convert(None)
 
         now = pd.Timestamp.utcnow().tz_localize(None)
         end = d["resolved_at"].fillna(now)

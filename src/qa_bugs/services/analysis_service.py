@@ -97,6 +97,28 @@ class AnalysisService:
             if not self.config.auto_classification.require_manual_review:
                 self._apply_profile_to_config(data_profile)
 
+        # Step 1.6: Validate required fields exist for enabled metrics
+        validation_error, warnings = self._validate_required_fields(df_normalized, self.config.enabled_metrics)
+        if validation_error:
+            raise ValueError(
+                f"Missing required fields after field mapping:\n\n{validation_error}\n\n"
+                f"Available fields: {', '.join(df_normalized.columns.tolist())}\n\n"
+                f"Please update your field mapping configuration to include these required fields."
+            )
+        
+        # Log warnings for highly-recommended fields
+        if warnings:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"\n{'='*70}\n"
+                f"⚠️  MISSING HIGHLY RECOMMENDED FIELDS\n"
+                f"{'='*70}\n"
+                f"{warnings}\n"
+                f"{'='*70}\n"
+                f"Analysis will continue but results may be limited.\n"
+            )
+
         # Step 2: Apply filters
         df_filtered = apply_filters(
             df_normalized,
@@ -262,6 +284,106 @@ class AnalysisService:
             overall = f"Error generating summary: {str(e)}"
 
         return insights, overall
+
+    def _validate_required_fields(self, df: pd.DataFrame, enabled_metrics: list[str]) -> tuple[Optional[str], Optional[str]]:
+        """
+        Validate that all required fields exist for enabled metrics.
+        
+        Args:
+            df: Normalized DataFrame
+            enabled_metrics: List of metric IDs to run
+            
+        Returns:
+            Tuple of (error_message, warning_message)
+            - error_message: Blocking errors for truly required fields
+            - warning_message: Warnings for highly-recommended fields
+        """
+        # Define required fields per metric
+        # Note: resolved_at and priority are now MANDATORY for meaningful analysis
+        METRIC_REQUIREMENTS = {
+            "defect_age": {
+                "required": ["created_at", "resolved_at"], 
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+            "age_by_priority": {
+                "required": ["created_at", "priority", "resolved_at"], 
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+            "cumulative_open_closed": {
+                "required": ["created_at", "resolved_at", "priority"], 
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+            "leakage_rate": {
+                "required": ["status", "environment", "priority"], 
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+            "status_by_severity": {
+                "required": ["status", "priority"], 
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+            "rejection_rate": {
+                "required": ["status"], 
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+            "defects_by_env_priority": {
+                "required": ["environment", "priority"], 
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+        }
+        
+        available_cols = set(df.columns)
+        missing_fields = {}
+        missing_recommended = {}
+        
+        for metric_id in enabled_metrics:
+            if metric_id not in METRIC_REQUIREMENTS:
+                continue
+                
+            requirements = METRIC_REQUIREMENTS[metric_id]
+            
+            # Check required fields (blocking)
+            required_fields = requirements["required"]
+            missing = [field for field in required_fields if field not in available_cols]
+            if missing:
+                missing_fields[metric_id] = missing
+            
+            # Check highly recommended fields (warning only)
+            recommended_fields = requirements.get("highly_recommended", [])
+            missing_rec = [field for field in recommended_fields if field not in available_cols]
+            if missing_rec:
+                missing_recommended[metric_id] = {
+                    "fields": missing_rec,
+                    "impact": requirements.get("impact_without", "")
+                }
+        
+        # Build error message for required fields
+        error_msg = None
+        if missing_fields:
+            error_lines = []
+            for metric_id, fields in missing_fields.items():
+                metric_name = METRICS[metric_id].display_name if metric_id in METRICS else metric_id
+                error_lines.append(f"  - {metric_name} ({metric_id}): missing {', '.join(fields)}")
+            error_msg = "\n".join(error_lines)
+        
+        # Build warning message for highly recommended fields
+        warning_msg = None
+        if missing_recommended:
+            warning_lines = []
+            for metric_id, info in missing_recommended.items():
+                metric_name = METRICS[metric_id].display_name if metric_id in METRICS else metric_id
+                fields_str = ", ".join(info["fields"])
+                impact_str = f"\n    Impact: {info['impact']}" if info['impact'] else ""
+                warning_lines.append(f"  - {metric_name} ({metric_id}): missing {fields_str}{impact_str}")
+            warning_msg = "\n".join(warning_lines)
+        
+        return error_msg, warning_msg
 
     @staticmethod
     def _parse_date(date_input: Union[str, date]) -> date:

@@ -291,8 +291,12 @@ def main():
                 mapping_result = st.session_state.get('field_mapping_result')
                 logging.info(f"Using cached field mapping for: {uploaded_file.name}")
         
-        # Always collapse this section by default after file upload
-        with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=False):
+        # Expand section if there are validation errors or missing required fields
+        has_errors = (
+            auto_map_enabled and mapping_result and 
+            (not mapping_result.valid or mapping_result.missing_required or mapping_result.errors)
+        )
+        with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=has_errors):
             # File info section
             st.markdown("### 📤 Upload Information")
             st.success(f"✓ File uploaded: **{uploaded_file.name}** ({file_size_mb:.2f} MB)")

@@ -19,9 +19,23 @@ class DefectAge(Metric):
         If DataProfile is provided, uses AI-classified open_statuses instead of config.
         """
         d = df.copy()
+        
+        # Validate required columns
+        if "created_at" not in d.columns:
+            return MetricResult(
+                self.id,
+                tables={"stats": pd.DataFrame([{"count": 0, "avg_age": 0, "p50": 0, "p90": 0, "avg_age_closed": None, "open_count": 0, "closed_count": 0}])},
+                summary="Missing required field: created_at"
+            )
+        
         # Normalize timestamps: read as tz-aware (UTC) then drop tz -> naive UTC
         d["created_at"] = pd.to_datetime(d["created_at"], errors="coerce", utc=True).dt.tz_convert(None)
-        d["resolved_at"] = pd.to_datetime(d["resolved_at"], errors="coerce", utc=True).dt.tz_convert(None)
+        
+        # Check if resolved_at exists, if not create it as null column
+        if "resolved_at" not in d.columns:
+            d["resolved_at"] = pd.NaT
+        else:
+            d["resolved_at"] = pd.to_datetime(d["resolved_at"], errors="coerce", utc=True).dt.tz_convert(None)
 
         now = pd.Timestamp.utcnow().tz_localize(None)
         end = d["resolved_at"].fillna(now)

@@ -8,9 +8,23 @@ class CumulativeOpenClosed(Metric):
 
     def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
         d = df.copy()
+        
+        # Validate required columns
+        if "created_at" not in d.columns:
+            return MetricResult(
+                self.id,
+                tables={"summary": pd.DataFrame([{"opened_cum": 0, "closed_cum": 0, "opened_hc_cum": 0, "closed_hc_cum": 0}])},
+                summary="Missing required field: created_at"
+            )
+        
         # уніфікуємо дати
         d["created_at"]  = pd.to_datetime(d["created_at"],  errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
-        d["resolved_at"] = pd.to_datetime(d["resolved_at"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+        
+        # Check if resolved_at exists, if not create it as null column
+        if "resolved_at" not in d.columns:
+            d["resolved_at"] = pd.NaT
+        else:
+            d["resolved_at"] = pd.to_datetime(d["resolved_at"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
 
         # Filter for last 365 days based on created_at
         cutoff_date = d["created_at"].max() - timedelta(days=365)
@@ -24,19 +38,24 @@ class CumulativeOpenClosed(Metric):
         trend.index.name = "date"
         trend = trend.reset_index()
 
-        # High+Critical subset
-        d_hc = d_filtered[d_filtered["priority"].isin(["High", "Critical"])].copy()
-        opened_hc = d_hc.groupby("created_at").size().cumsum().rename("opened_hc")
-        closed_hc = d_hc.dropna(subset=["resolved_at"]).groupby("resolved_at").size().cumsum().rename("closed_hc")
-        trend_hc = pd.concat([opened_hc, closed_hc], axis=1).ffill().fillna(0).astype(int)
-        trend_hc.index.name = "date"
-        trend_hc = trend_hc.reset_index()
+        # High+Critical subset (only if priority column exists)
+        if "priority" in d_filtered.columns:
+            d_hc = d_filtered[d_filtered["priority"].isin(["High", "Critical"])].copy()
+            opened_hc = d_hc.groupby("created_at").size().cumsum().rename("opened_hc")
+            closed_hc = d_hc.dropna(subset=["resolved_at"]).groupby("resolved_at").size().cumsum().rename("closed_hc")
+            trend_hc = pd.concat([opened_hc, closed_hc], axis=1).ffill().fillna(0).astype(int)
+            trend_hc.index.name = "date"
+            trend_hc = trend_hc.reset_index()
 
-        # Merge H+C data into main trend table, forward-filling H+C values across all dates
-        trend = trend.merge(trend_hc, on="date", how="left")
-        # Forward-fill H+C columns to maintain last known values, then fill remaining with 0
-        trend["opened_hc"] = trend["opened_hc"].ffill().fillna(0)
-        trend["closed_hc"] = trend["closed_hc"].ffill().fillna(0)
+            # Merge H+C data into main trend table, forward-filling H+C values across all dates
+            trend = trend.merge(trend_hc, on="date", how="left")
+            # Forward-fill H+C columns to maintain last known values, then fill remaining with 0
+            trend["opened_hc"] = trend["opened_hc"].ffill().fillna(0)
+            trend["closed_hc"] = trend["closed_hc"].ffill().fillna(0)
+        else:
+            # If priority doesn't exist, create zero columns
+            trend["opened_hc"] = 0
+            trend["closed_hc"] = 0
 
         # Convert only numeric columns to int (preserve date column as datetime)
         for col in trend.columns:
