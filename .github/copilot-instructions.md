@@ -18,6 +18,16 @@ Keep instructions short and actionable. Focus on the existing architecture and c
   - `.tables`: dict[str, pandas.DataFrame]
   - `.summary`: short string used in the report
   - use `Metric.payload()` when passing results to the LLM
+  - **Field Validation**: All metrics MUST validate required fields before accessing them to prevent KeyError.
+    - Check if field exists: `if "field_name" not in df.columns`
+    - Return early with empty/zero result and descriptive summary if required fields are missing
+    - For optional fields, create null column if missing: `df["field_name"] = pd.NaT`
+  - **Mandatory Fields** (blocks analysis if missing):
+    - `created_at` - Required for all time-based metrics
+    - `resolved_at` - Required for tracking defect resolution and closure times
+    - `priority` - Required for priority-based analysis and most metrics
+    - `status` - Required for status-based metrics
+    - `environment` - Required for environment-based metrics
 
 - Ingestion conventions:
   - Normalize field names via `qa_bugs/ingest/normalizer.py` using `fields_mapping` from config.
