@@ -5,7 +5,7 @@ class AgeByPriority(Metric):
     id = "age_by_priority"
     display_name = "Age by Priority"
 
-    def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
+    def compute(self, df: pd.DataFrame, cfg: dict, profile=None) -> MetricResult:
         d = df.copy()
         
         # Validate required columns
@@ -32,6 +32,12 @@ class AgeByPriority(Metric):
         agg = grp["age_days"].agg(avg_age="mean", p50="median", count="count").reset_index()
         p90 = grp["age_days"].quantile(0.9).reset_index().rename(columns={"age_days":"p90"})
         agg = agg.merge(p90, on="priority", how="left")
+
+        # Apply priority ordering from profile if available
+        if profile is not None and profile.priority_profile and profile.priority_profile.severity_order:
+            order = profile.priority_profile.severity_order
+            agg["priority"] = pd.Categorical(agg["priority"], categories=order, ordered=True)
+            agg = agg.sort_values("priority")
 
         return MetricResult(
             self.id,

@@ -78,9 +78,9 @@ class LLMService:
             self.endpoint = config.get("endpoint") or os.environ.get("AZURE_OPENAI_ENDPOINT")
             api_key = os.environ.get("AZURE_OPENAI_KEY")
             logger.info(f"LLM: Using Azure provider - endpoint={self.endpoint}, deployment={self.deployment}")
-            logger.debug(f"LLM: Azure API key length={len(api_key) if api_key else 0}, prefix={api_key[:10] if api_key else 'NONE'}...")
+            logger.debug("LLM: Azure API key configured=%s", bool(api_key))
             if self.debug:
-                print(f"[LLM] Azure provider - endpoint={self.endpoint}, deployment={self.deployment}, key_len={len(api_key) if api_key else 0}")
+                logger.debug("LLM debug: Azure provider - endpoint=%s, deployment=%s, key_present=%s", self.endpoint, self.deployment, bool(api_key))
             self.client = AzureOpenAI(
                 api_key=api_key,
                 api_version=self.api_version,
@@ -91,8 +91,7 @@ class LLMService:
             api_key = config.get("api_key") or os.environ.get("OPENAI_API_KEY")
             logger.info(f"LLM: Using OpenAI provider - model={self.deployment}")
             if api_key:
-                logger.debug(f"LLM: OpenAI API key length={len(api_key)}, prefix={api_key[:15]}..., suffix=...{api_key[-20:]}")
-                logger.debug(f"LLM: Key has newlines: {repr(api_key).count('\\n')}, has spaces: {len(api_key) != len(api_key.strip())}")
+                logger.debug("LLM: OpenAI API key configured=%s", True)
             else:
                 logger.error("LLM: OpenAI API key NOT FOUND in environment or config")
             if not api_key:
@@ -102,7 +101,7 @@ class LLMService:
                 logger.error("LLM: API key contains newline characters - this will cause 401 errors")
                 raise ValueError("OpenAI API key contains newline characters. Check your .env file formatting.")
             if self.debug:
-                print(f"[LLM] OpenAI provider - model={self.deployment}, key_len={len(api_key)}, key_prefix={api_key[:10]}...")
+                logger.debug("LLM debug: OpenAI provider - model=%s, key_present=%s", self.deployment, True)
             self.client = OpenAI(api_key=api_key.strip())
             logger.info("LLM: OpenAI client created successfully")
         else:

@@ -24,6 +24,7 @@ from qa_bugs.services import AnalysisService, AnalysisConfig, get_storage_servic
 from qa_bugs.ingest.field_mapper import FieldMappingService
 from qa_bugs.ingest.env_value_mapper import EnvironmentValueMapper
 from qa_bugs.ingest.normalizer import Normalizer
+from qa_bugs.metrics import METRICS
 from qa_bugs.ui.components.results_display import display_results
 import base64
 
@@ -292,9 +293,14 @@ def main():
                 logging.info(f"Using cached field mapping for: {uploaded_file.name}")
         
         # Expand section if there are validation errors or missing required fields
-        has_errors = (
-            auto_map_enabled and mapping_result and 
-            (not mapping_result.valid or mapping_result.missing_required or mapping_result.errors)
+        has_errors = bool(
+            auto_map_enabled
+            and mapping_result
+            and (
+                (not mapping_result.valid)
+                or bool(mapping_result.missing_required)
+                or bool(mapping_result.errors)
+            )
         )
         with st.expander("⚙️ Data Upload, Field Mapping & Filters", expanded=has_errors):
             # File info section
@@ -469,7 +475,16 @@ def main():
                     st.warning("⚠️ Environment column not found in data - skipping environment value mapping")
             
             st.divider()
-            
+
+            # Metric readiness check (cached, tied to file + mapping)
+            readiness_cache_key = f"readiness_{cache_key}"
+            if st.session_state.get('readiness_cache_key') != readiness_cache_key:
+                temp_service = AnalysisService(final_config)
+                st.session_state['missing_by_metric'] = temp_service.check_metric_readiness(df)
+                st.session_state['readiness_cache_key'] = readiness_cache_key
+
+            st.divider()
+
             # Date range filters section
             st.markdown("### ⚙️ Date Filters (Optional)")
             col1, col2 = st.columns(2)
@@ -486,8 +501,23 @@ def main():
                 if use_until:
                     until_date = st.date_input("Created until")
 
+        # Metric readiness warning (outside the expander)
+        confirmed_partial = True
+        missing_by_metric = st.session_state.get('missing_by_metric', {})
+        if missing_by_metric:
+            lines = []
+            for mid, fields in missing_by_metric.items():
+                name = METRICS[mid].display_name if mid in METRICS else mid
+                lines.append(f"- **{name}**: missing `{', '.join(fields)}`")
+            st.warning("⚠️ Some metrics will be skipped due to missing fields:\n\n" + "\n".join(lines))
+            confirmed_partial = st.checkbox(
+                "I understand — continue with the remaining metrics",
+                key="confirm_partial_metrics"
+            )
+
         # Run analysis button (outside the expander)
-        if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+        run_disabled = bool(missing_by_metric) and not confirmed_partial
+        if st.button("🚀 Run Analysis", type="primary", use_container_width=True, disabled=run_disabled):
             with st.spinner("Running analysis... This may take a minute."):
                 try:
                     # Create output directory for this analysis run

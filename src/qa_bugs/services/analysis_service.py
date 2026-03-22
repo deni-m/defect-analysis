@@ -98,14 +98,14 @@ class AnalysisService:
                 self._apply_profile_to_config(data_profile)
 
         # Step 1.6: Validate required fields exist for enabled metrics
-        validation_error, warnings = self._validate_required_fields(df_normalized, self.config.enabled_metrics)
-        if validation_error:
-            raise ValueError(
-                f"Missing required fields after field mapping:\n\n{validation_error}\n\n"
-                f"Available fields: {', '.join(df_normalized.columns.tolist())}\n\n"
-                f"Please update your field mapping configuration to include these required fields."
-            )
-        
+        missing_by_metric, warnings = self._validate_required_fields(df_normalized, self.config.enabled_metrics)
+        if missing_by_metric:
+            import logging
+            logger = logging.getLogger(__name__)
+            for mid, fields in missing_by_metric.items():
+                logger.warning("Skipping metric '%s' — missing fields: %s", mid, fields)
+        effective_metrics = [m for m in self.config.enabled_metrics if m not in missing_by_metric]
+
         # Log warnings for highly-recommended fields
         if warnings:
             import logging
@@ -137,7 +137,8 @@ class AnalysisService:
 
         # Step 3: Compute metrics
         # Note: rejection_rate needs date-filtered but not status-filtered data
-        metrics_results = self._compute_metrics(df_filtered, df_unfiltered=df_date_filtered, profile=data_profile)
+        metrics_results = self._compute_metrics(df_filtered, df_unfiltered=df_date_filtered,
+                                                profile=data_profile, enabled_metrics=effective_metrics)
 
         # Step 4: Generate LLM insights (if enabled)
         should_use_llm = llm_enabled if llm_enabled is not None else self.config.llm.enabled
@@ -163,7 +164,8 @@ class AnalysisService:
             "since": since_date.isoformat() if since_date else None,
             "until": until_date.isoformat() if until_date else None,
             "llm_enabled": should_use_llm,
-            "metrics_computed": list(metrics_results.keys())
+            "metrics_computed": list(metrics_results.keys()),
+            "skipped_metrics": missing_by_metric,
         }
 
         return AnalysisResult(
@@ -175,7 +177,7 @@ class AnalysisService:
             metadata=metadata
         )
 
-    def _compute_metrics(self, df: pd.DataFrame, df_unfiltered: pd.DataFrame = None, profile: "DataProfile" = None) -> Dict[str, "MetricResult"]:
+    def _compute_metrics(self, df: pd.DataFrame, df_unfiltered: pd.DataFrame = None, profile: "DataProfile" = None, enabled_metrics: list[str] | None = None) -> Dict[str, "MetricResult"]:
         """
         Compute all enabled metrics.
 
@@ -194,7 +196,7 @@ class AnalysisService:
         # Get legacy dict for backward compatibility with metrics that need it
         legacy_config = self.config.to_legacy_dict()
 
-        for metric_id in self.config.enabled_metrics:
+        for metric_id in (enabled_metrics if enabled_metrics is not None else self.config.enabled_metrics):
             if metric_id not in METRICS:
                 # Skip unknown metrics (could log warning here)
                 continue
@@ -285,17 +287,17 @@ class AnalysisService:
 
         return insights, overall
 
-    def _validate_required_fields(self, df: pd.DataFrame, enabled_metrics: list[str]) -> tuple[Optional[str], Optional[str]]:
+    def _validate_required_fields(self, df: pd.DataFrame, enabled_metrics: list[str]) -> tuple[dict[str, list[str]], Optional[str]]:
         """
         Validate that all required fields exist for enabled metrics.
-        
+
         Args:
             df: Normalized DataFrame
             enabled_metrics: List of metric IDs to run
-            
+
         Returns:
-            Tuple of (error_message, warning_message)
-            - error_message: Blocking errors for truly required fields
+            Tuple of (missing_by_metric, warning_message)
+            - missing_by_metric: Dict of {metric_id: [missing_field, ...]} for metrics that cannot run
             - warning_message: Warnings for highly-recommended fields
         """
         # Define required fields per metric
@@ -363,15 +365,6 @@ class AnalysisService:
                     "impact": requirements.get("impact_without", "")
                 }
         
-        # Build error message for required fields
-        error_msg = None
-        if missing_fields:
-            error_lines = []
-            for metric_id, fields in missing_fields.items():
-                metric_name = METRICS[metric_id].display_name if metric_id in METRICS else metric_id
-                error_lines.append(f"  - {metric_name} ({metric_id}): missing {', '.join(fields)}")
-            error_msg = "\n".join(error_lines)
-        
         # Build warning message for highly recommended fields
         warning_msg = None
         if missing_recommended:
@@ -383,7 +376,17 @@ class AnalysisService:
                 warning_lines.append(f"  - {metric_name} ({metric_id}): missing {fields_str}{impact_str}")
             warning_msg = "\n".join(warning_lines)
         
-        return error_msg, warning_msg
+        return missing_fields, warning_msg
+
+    def check_metric_readiness(self, df: pd.DataFrame) -> dict[str, list[str]]:
+        """Normalize df and return metrics that would be skipped due to missing fields."""
+        normalizer = Normalizer(
+            mapping=self.config.fields_mapping,
+            env_value_mapping=self.config.env_value_mapping
+        )
+        df_normalized = normalizer.normalize(df)
+        missing_by_metric, _ = self._validate_required_fields(df_normalized, self.config.enabled_metrics)
+        return missing_by_metric
 
     @staticmethod
     def _parse_date(date_input: Union[str, date]) -> date:

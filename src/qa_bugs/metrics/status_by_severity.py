@@ -58,8 +58,15 @@ class StatusBySeverity(Metric):
         totals = pivot.sum(axis=1)
         pivot = pivot.loc[totals.sort_values(ascending=False).index]
 
-        # Build stacked bar chart data frame: need order of priorities by total
-        priority_order = pivot.index.tolist()
+        # Build stacked bar chart data frame: use profile severity_order when available, else sort by total
+        existing_priorities = pivot.index.tolist()
+        if profile is not None and profile.priority_profile and profile.priority_profile.severity_order:
+            severity_order = profile.priority_profile.severity_order
+            priority_order = [p for p in severity_order if p in existing_priorities]
+            # Append any priorities not in the profile order at the end
+            priority_order += [p for p in existing_priorities if p not in priority_order]
+        else:
+            priority_order = existing_priorities
         # To keep consistent color ordering, maintain alphabetical status ordering
         status_order = sorted(pivot.columns.tolist())
         long_df = summary.copy()

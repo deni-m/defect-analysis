@@ -11,6 +11,7 @@ from qa_bugs.services import AnalysisService, AnalysisConfig
 from qa_bugs.ingest.field_mapper import FieldMappingService
 from qa_bugs.ingest.env_value_mapper import EnvironmentValueMapper
 from qa_bugs.cli.html_report import HTMLReportGenerator
+from qa_bugs.metrics import METRICS
 
 # Load .env with override=True so .env file takes priority over system environment variables
 load_dotenv(override=True)
@@ -245,6 +246,18 @@ def run(
     typer.echo("Running analysis...")
     logging.info(f"Starting analysis: input={input}, since={since}, until={until}, llm={llm}")
     service = AnalysisService(analysis_config)
+
+    missing_by_metric = service.check_metric_readiness(df_raw)
+    if missing_by_metric:
+        typer.echo("")
+        typer.secho("⚠️  Some metrics will be skipped due to missing fields:", fg=typer.colors.YELLOW)
+        for metric_id, fields in missing_by_metric.items():
+            name = METRICS[metric_id].display_name if metric_id in METRICS else metric_id
+            typer.echo(f"  - {name}: missing {', '.join(fields)}")
+        typer.echo("")
+        if not typer.confirm("Continue with the remaining metrics?"):
+            raise typer.Exit(0)
+        typer.echo("")
 
     llm_enabled = llm.lower() == "on"
     result = service.run_analysis(

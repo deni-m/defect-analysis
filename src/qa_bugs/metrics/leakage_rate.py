@@ -26,7 +26,7 @@ class LeakageRate(Metric):
     display_name = "Leakage Rate"
     requires = {"status", "environment"}
 
-    def compute(self, df: pd.DataFrame, ctx: dict) -> MetricResult:
+    def compute(self, df: pd.DataFrame, ctx: dict, profile=None) -> MetricResult:
         """Compute leakage rate supporting both legacy full-config ctx and new merged per-metric params.
 
         New style (after CLI change): ctx is a dict merged from common + metric-specific params and contains:
@@ -180,6 +180,15 @@ class LeakageRate(Metric):
                     lambda r: round((r["leaked"] / r["total"] * 100.0), 2) if r["total"] > 0 else 0.0,
                     axis=1,
                 )
+
+                # Apply priority ordering from profile if available
+                if profile is not None and profile.priority_profile and profile.priority_profile.severity_order:
+                    order = profile.priority_profile.severity_order
+                    by_priority["priority"] = pd.Categorical(
+                        by_priority["priority"], categories=order, ordered=True
+                    )
+                    by_priority = by_priority.sort_values("priority")
+
                 tables["leakage_by_priority"] = by_priority
 
                 fig = px.bar(
