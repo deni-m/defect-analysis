@@ -53,9 +53,9 @@ class LLMService:
         
         # Model/deployment configuration
         if self.provider == "azure":
-            self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4-mini")
+            self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4o-mini")
         else:
-            self.deployment = config.get("model", "gpt-4-mini")  # OpenAI uses 'model' instead of 'deployment'
+            self.deployment = config.get("model", "gpt-4o-mini")  # OpenAI uses 'model' instead of 'deployment'
         # Optional fallback model for providers that may return empty content intermittently.
         self.fallback_model = config.get("fallback_model")
         if self.provider == "openai" and not self.fallback_model:
