@@ -12,9 +12,15 @@ qa-bugs run   --config configs/example.config.yml   --input data/sample_bugs.csv
 
 Open the generated `report.html` in a browser.
 
+## CSV Field Requirements
+
+- Required: `key`, `created_at`, `status`, `priority`
+- Optional: `resolved_at`, `environment`, `fix_version`
+- Some enabled metrics may require optional fields. If missing, those metrics are skipped with warnings.
+
 ## KPI Semantics
 
-- `Total Defects` in the HTML summary card shows the total number of rows loaded from the input file (raw input count).
+- `Total Defects` in summary cards (CLI HTML and Streamlit UI) shows the total number of rows loaded from the input file (raw input count).
 - Metric computations still apply configured filters (for example `exclude_statuses` such as `Canceled` / `Cancelled`).
 - Because of this, `Total Defects` can be higher than counts used inside filtered metrics.
 

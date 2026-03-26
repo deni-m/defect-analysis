@@ -36,8 +36,8 @@ def _display_summary_kpis(kpis: SummaryKPIs):
             return "-"
 
     # Format display values
-    open_count = None
-    if kpis.closed_defects is not None and kpis.total_defects:
+    open_count = kpis.opened_defects
+    if open_count is None and kpis.closed_defects is not None and kpis.total_defects:
         open_count = kpis.total_defects - kpis.closed_defects
 
     open_block = "-"

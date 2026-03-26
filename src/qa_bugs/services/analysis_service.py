@@ -155,6 +155,8 @@ class AnalysisService:
         summary_kpis = calculate_summary_kpis(
             AnalysisResult(metrics_results=metrics_results)
         )
+        # Display total defects as raw input row count (before status exclusions).
+        summary_kpis.total_defects = int(len(df))
 
         # Step 6: Build result with metadata
         metadata = {

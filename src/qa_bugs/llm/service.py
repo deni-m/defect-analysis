@@ -53,9 +53,9 @@ class LLMService:
         
         # Model/deployment configuration
         if self.provider == "azure":
-            self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4o-mini")
+            self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-5-mini")
         else:
-            self.deployment = config.get("model", "gpt-4o-mini")  # OpenAI uses 'model' instead of 'deployment'
+            self.deployment = config.get("model", "gpt-5-mini")  # OpenAI uses 'model' instead of 'deployment'
         
         self.temperature = config.get("temperature", 0.2)
         self.max_tokens = config.get("max_tokens", 700)

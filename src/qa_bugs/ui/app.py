@@ -144,13 +144,17 @@ def main():
         
         st.header("📋 Quick Reference")
         st.info("""
-        **Your CSV needs these fields:**
+        **Required fields:**
         - key
         - created_at
         - status
         - priority
+
+        **Optional fields:**
         - resolved_at
         - environment
+
+        *Note: some enabled metrics may require optional fields.*
         """)
         
         st.page_link("pages/guide.py", label="View User Guide", icon="📖")
