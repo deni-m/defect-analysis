@@ -40,10 +40,12 @@ The QA Bugs Analytics tool now supports both **Azure OpenAI** and direct **OpenA
 ### Common (Both Providers)
 - `enabled`: true/false - Enable or disable LLM integration
 - `provider`: "azure" or "openai" - Which provider to use
-- `temperature`: 0.0-2.0 - Response randomness (default: 1.0)
+- `temperature`: 0.0-2.0 - Response randomness (some models do not support this parameter)
 - `max_tokens`: integer - Max response length (default: 700)
+- `enable_retries`: true/false - Retry on empty/error responses (default: false for faster fail-fast behavior)
 - `debug`: true/false - Enable debug logging
 - `log_prompts`: true/false - Save prompts/responses to files
+- `log_raw_io`: true/false - Save raw LLM request/response JSON for each API call (stored under `llm_raw/` in run output)
 
 ### Azure-Specific
 - `endpoint`: Azure OpenAI endpoint URL
@@ -53,6 +55,7 @@ The QA Bugs Analytics tool now supports both **Azure OpenAI** and direct **OpenA
 
 ### OpenAI-Specific
 - `model`: Model name (e.g., "gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo")
+- `fallback_model`: Optional backup model used when the primary model returns empty content (default: `gpt-4o-mini`)
 - `api_key`: (Optional) API key - better to use environment variable
 - Environment: `OPENAI_API_KEY`
 
@@ -99,3 +102,21 @@ That's it! The tool will automatically use the correct API client based on your 
   AZURE_OPENAI_KEY=your-key
   AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com
   ```
+
+## Troubleshooting Empty Summaries
+
+If overall summary says there is no metric data (or appears generic), the model may be returning empty text.
+
+- Check logs in your latest output folder for `llm_*.txt` and `qa_bugs.log`.
+- Prefer stable chat models that return text consistently (for example, `gpt-4o-mini` for OpenAI).
+- Ensure provider settings match your config:
+   - OpenAI uses `llm.model`
+   - Azure uses `llm.deployment` (or `AZURE_OPENAI_DEPLOYMENT` env var)
+- If your model rejects `temperature` (for example: `Unsupported value: 'temperature'`), the app now retries automatically without `temperature`.
+- If model name contains `gpt-5`, the app proactively omits `temperature` for LLM calls.
+- Retries are optional. With `enable_retries: false`, the app does not run extra fallback calls and returns errors immediately.
+- LLM call failures are not silently swallowed:
+   - detailed errors are logged to `qa_bugs.log` (including primary/fallback failures),
+   - prompt/response/error snapshots are written to `llm_*.txt` when `log_prompts: true`,
+   - raw request/response/error JSON is written to `llm_raw/*.json` when `log_raw_io: true`,
+   - user-facing text includes `LLM error primary=... fallback=...` when both attempts fail.

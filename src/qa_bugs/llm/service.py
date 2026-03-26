@@ -1,4 +1,4 @@
-import os, time, re, logging
+import os, time, re, logging, json
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
@@ -56,13 +56,20 @@ class LLMService:
             self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-5-mini")
         else:
             self.deployment = config.get("model", "gpt-5-mini")  # OpenAI uses 'model' instead of 'deployment'
+        # Optional fallback model for providers that may return empty content intermittently.
+        self.fallback_model = config.get("fallback_model")
+        if self.provider == "openai" and not self.fallback_model:
+            self.fallback_model = "gpt-4o-mini"
         
         self.temperature = config.get("temperature", 0.2)
         self.max_tokens = config.get("max_tokens", 700)
+        self.enable_retries = config.get("enable_retries", False)
         self.prompts_dir = config.get("prompts_dir", "prompts")  # Path relative to qa_bugs package
         self.debug = config.get("debug", False)
         self.log_prompts = config.get("log_prompts", False)
-        self._log_dir = Path(log_dir) if (log_dir and self.log_prompts) else None
+        self.log_raw_io = config.get("log_raw_io", False)
+        self._log_dir = Path(log_dir) if (log_dir and (self.log_prompts or self.log_raw_io)) else None
+        self._raw_log_dir: Path | None = None
         self.api_version = config.get("api_version", "2024-05-01-preview")
         
         # Trimming / compression settings
@@ -111,8 +118,12 @@ class LLMService:
         if self._log_dir:
             try:
                 self._log_dir.mkdir(parents=True, exist_ok=True)
+                if self.log_raw_io:
+                    self._raw_log_dir = self._log_dir / "llm_raw"
+                    self._raw_log_dir.mkdir(parents=True, exist_ok=True)
             except Exception:
                 self._log_dir = None  # disable if cannot create
+                self._raw_log_dir = None
 
     # --- internal helpers -------------------------------------------------
     def _log(self, event: _LLMDebugEvent):
@@ -121,18 +132,58 @@ class LLMService:
         # Print single-line structured log
         print(f"[LLM] {event.to_line()}")
 
+    def _should_send_temperature(self, model: str, temperature: float | None) -> bool:
+        """Return True when temperature should be sent for this model."""
+        if temperature is None:
+            return False
+        # GPT-5 family may reject explicit temperature values.
+        if "gpt-5" in (model or "").lower():
+            return False
+        return True
+
     def _chat(self, model: str, messages: list[Dict[str, Any]], temperature: float, max_tokens: int, metric_id: str | None = None) -> Tuple[bool, Any, str | None]:
         start = time.time()
         prompt_text = "\n".join(m.get("content", "") for m in messages if m.get("role") == "user")
         try:
-            resp = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_completion_tokens=max_tokens,
-            )
+            req_kwargs: Dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "max_completion_tokens": max_tokens,
+            }
+            if self._should_send_temperature(model, temperature):
+                req_kwargs["temperature"] = temperature
+
+            try:
+                resp = self.client.chat.completions.create(**req_kwargs)
+            except Exception as e:
+                # Some models reject temperature entirely; retry once without it.
+                err_msg = str(e)
+                unsupported_temp = "Unsupported value: 'temperature'" in err_msg or "does not support temperature" in err_msg
+                if unsupported_temp and "temperature" in req_kwargs:
+                    logger.warning(
+                        "LLM: model '%s' does not support temperature; retrying request without temperature",
+                        model,
+                    )
+                    req_kwargs.pop("temperature", None)
+                    resp = self.client.chat.completions.create(**req_kwargs)
+                else:
+                    raise
+
             latency = (time.time() - start) * 1000
-            txt = resp.choices[0].message.content or ""
+            self._maybe_persist_raw(metric_id or "unknown", req_kwargs, resp, error=None)
+            txt = (resp.choices[0].message.content or "").strip()
+            if not txt:
+                err = "EmptyResponse: model returned no text content"
+                logger.warning("LLM: %s (model=%s, metric=%s)", err, model, metric_id)
+                self._log(_LLMDebugEvent(
+                    phase="chat", ok=False, latency_ms=latency,
+                    error_type="EmptyResponse", error_message=err,
+                    prompt_chars=len(prompt_text), response_chars=0,
+                    model=model, api_version=self.api_version, endpoint=self.endpoint, metric_id=metric_id
+                ))
+                self._maybe_persist(metric_id or "unknown", prompt_text, "", error=err)
+                return False, None, err
+
             self._log(_LLMDebugEvent(
                 phase="chat", ok=True, latency_ms=latency,
                 prompt_chars=len(prompt_text), response_chars=len(txt),
@@ -142,6 +193,8 @@ class LLMService:
             return True, txt, None
         except Exception as e:
             latency = (time.time() - start) * 1000
+            logger.error("LLM chat failed (model=%s, metric=%s): %s", model, metric_id, e)
+            self._maybe_persist_raw(metric_id or "unknown", req_kwargs if 'req_kwargs' in locals() else None, None, error=f"{type(e).__name__}: {e}")
             self._log(_LLMDebugEvent(
                 phase="chat", ok=False, latency_ms=latency,
                 error_type=type(e).__name__, error_message=str(e),
@@ -150,6 +203,78 @@ class LLMService:
             ))
             self._maybe_persist(metric_id or "unknown", prompt_text, None, error=f"{type(e).__name__}: {e}")
             return False, None, f"{type(e).__name__}: {e}"
+
+    def _chat_with_model_fallback(
+        self,
+        model: str,
+        messages: list[Dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        metric_id: str | None = None,
+    ) -> Tuple[bool, Any, str | None]:
+        """Call LLM and retry with bigger token budget/fallback model on empty content."""
+        ok, txt, err = self._chat(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            metric_id=metric_id,
+        )
+        if ok:
+            return ok, txt, err
+
+        if not self.enable_retries:
+            return ok, txt, err
+
+        # Reasoning models may spend completion budget on reasoning tokens and return empty text.
+        # Retry once with a larger completion budget before switching models.
+        should_retry_bigger_budget = (
+            isinstance(err, str)
+            and "EmptyResponse" in err
+            and int(max_tokens) < 2000
+        )
+        if should_retry_bigger_budget:
+            boosted_tokens = min(max(int(max_tokens) * 3, int(max_tokens) + 800), 2400)
+            logger.warning(
+                "LLM: Empty response from model '%s' for metric '%s'; retrying with larger max_completion_tokens=%s",
+                model,
+                metric_id,
+                boosted_tokens,
+            )
+            ok2, txt2, err2 = self._chat(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=boosted_tokens,
+                metric_id=metric_id,
+            )
+            if ok2:
+                return ok2, txt2, err2
+            err = err2
+
+        should_retry = (
+            self.provider == "openai"
+            and bool(self.fallback_model)
+            and self.fallback_model != model
+            and isinstance(err, str)
+            and "EmptyResponse" in err
+        )
+        if not should_retry:
+            return ok, txt, err
+
+        logger.warning(
+            "LLM: Empty response from model '%s' for metric '%s'; retrying with fallback model '%s'",
+            model,
+            metric_id,
+            self.fallback_model,
+        )
+        return self._chat(
+            model=self.fallback_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            metric_id=metric_id,
+        )
 
     # --- public API -------------------------------------------------------
     def _apply_config_templates(self, prompt_template: str, metric_id: str) -> str:
@@ -192,7 +317,7 @@ class LLMService:
         context = context_csv
         if len(full_prompt) > self.max_prompt_chars:
             full_prompt = full_prompt[: self.max_prompt_chars] + "\n...TRUNCATED..."
-        ok, txt, err = self._chat(
+        ok, txt, err = self._chat_with_model_fallback(
             model=self.deployment,
             messages=[{"role": "user", "content": full_prompt}],
             temperature=self.temperature,
@@ -201,16 +326,20 @@ class LLMService:
         )
         if ok:
             return txt
+        if not self.enable_retries:
+            logger.error("LLM analyze_metric failed (metric=%s): primary=%s", metric_id, err)
+            return f"LLM error primary={err}"
         fallback_prompt = f"You are a concise analyst. Summarize metric {metric_id} in <=50 words based on CSV: {context[:1500]}"
-        ok2, txt2, err2 = self._chat(
+        ok2, txt2, err2 = self._chat_with_model_fallback(
             model=self.deployment,
             messages=[{"role": "user", "content": fallback_prompt}],
-            temperature=0.0,
+            temperature=self.temperature,
             max_tokens=120,
             metric_id=metric_id,
         )
         if ok2:
             return txt2 + f"\n(Fallback used due to error: {err})"
+        logger.error("LLM analyze_metric failed (metric=%s): primary=%s fallback=%s", metric_id, err, err2)
         return f"LLM error primary={err} fallback={err2}"
 
 
@@ -236,13 +365,18 @@ class LLMService:
             # Format as: ## metric_name\ninsight_text
             lines.append(f"## {mid}\n{safe}")
         context_block = "\n\n".join(lines)
+        if not context_block.strip():
+            return (
+                "No metric insights were generated by the LLM, so an overall summary cannot be produced. "
+                "Check model/provider configuration and run analysis again."
+            )
         full_prompt = (
             prompt_template
             .replace("{{metrics_context}}", context_block)            
         )
         if len(full_prompt) > self.max_prompt_chars:
             full_prompt = full_prompt[: self.max_prompt_chars]
-        ok, txt, err = self._chat(
+        ok, txt, err = self._chat_with_model_fallback(
             model=self.deployment,
             messages=[{"role": "user", "content": full_prompt}],
             temperature=self.temperature,
@@ -251,17 +385,21 @@ class LLMService:
         )
         if ok:
             return txt
+        if not self.enable_retries:
+            logger.error("LLM summarize_texts failed: primary=%s", err)
+            return f"LLM error primary={err}"
         # fallback minimal summary
         fallback_prompt = f"Summarize these metric insights: {context_block[:1500]}"
-        ok2, txt2, err2 = self._chat(
+        ok2, txt2, err2 = self._chat_with_model_fallback(
             model=self.deployment,
             messages=[{"role": "user", "content": fallback_prompt}],
-            temperature=0.0,
+            temperature=self.temperature,
             max_tokens=160,
             metric_id="__summary_texts_fallback__",
         )
         if ok2:
             return txt2
+        logger.error("LLM summarize_texts failed: primary=%s fallback=%s", err, err2)
         return f"LLM error primary={err} fallback={err2}"
 
     def ping(self) -> tuple[bool, str]:
@@ -274,7 +412,7 @@ class LLMService:
         ok, txt, err = self._chat(
             model=self.deployment,
             messages=[{"role": "user", "content": "ping"}],
-            temperature=0.0,
+            temperature=self.temperature,
             max_tokens=5,
             metric_id="__ping__",
         )
@@ -335,6 +473,41 @@ class LLMService:
                     f.write("<no response due to error>")
         except Exception as e:
             self._log(_LLMDebugEvent(phase="persist", ok=False, error_type=type(e).__name__, error_message=str(e), model=self.deployment))
+
+    def _maybe_persist_raw(self, metric_id: str, request_payload: dict | None, response_obj: Any, error: str | None):
+        """Persist raw LLM request/response JSON when enabled via log_raw_io."""
+        if not self._raw_log_dir:
+            return
+        try:
+            safe_id = metric_id.replace("/", "_")
+            ts = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+            ms = int((time.time() % 1) * 1000)
+            fname = f"llm_raw_{safe_id}_{ts}_{ms:03d}.json"
+            path = self._raw_log_dir / fname
+
+            response_payload: Any = None
+            if response_obj is not None:
+                if hasattr(response_obj, "model_dump"):
+                    response_payload = response_obj.model_dump()
+                elif hasattr(response_obj, "to_dict"):
+                    response_payload = response_obj.to_dict()
+                else:
+                    response_payload = str(response_obj)
+
+            payload = {
+                "metric_id": metric_id,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "provider": self.provider,
+                "model": self.deployment,
+                "api_version": self.api_version,
+                "request": request_payload,
+                "response": response_payload,
+                "error": error,
+            }
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=True, indent=2)
+        except Exception as e:
+            self._log(_LLMDebugEvent(phase="persist_raw", ok=False, error_type=type(e).__name__, error_message=str(e), model=self.deployment))
 
     # --- CSV helpers (always CSV now) -------------------------------------
     def _escape_csv(self, val: Any) -> str:
