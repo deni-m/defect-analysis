@@ -135,8 +135,11 @@ class HTMLReportGenerator:
         """Build HTML figures and extract KPI data."""
         figures = {}
         extra_fragments = {}
+        total_records = result.metadata.get("total_records") if isinstance(result.metadata, dict) else None
         kpi_data = {
-            "total_defects": None,
+            # Keep total defects as the raw input row count (includes excluded statuses).
+            # Metric computations still use filtered data.
+            "total_defects": int(total_records) if isinstance(total_records, (int, float)) else None,
             "avg_age_all": None,
             "p90_age": None,
             "avg_age_closed": None,
@@ -154,7 +157,8 @@ class HTMLReportGenerator:
                 stats_tbl = res.tables.get("stats")
                 if stats_tbl is not None and not stats_tbl.empty:
                     stats_row = stats_tbl.iloc[0].to_dict()
-                    kpi_data["total_defects"] = int(stats_row.get("count", 0))
+                    if kpi_data["total_defects"] is None:
+                        kpi_data["total_defects"] = int(stats_row.get("count", 0))
                     kpi_data["avg_age_all"] = float(stats_row.get("avg_age", 0.0))
                     kpi_data["p90_age"] = float(stats_row.get("p90", 0.0))
                 tbl = res.tables.get("defect_age")

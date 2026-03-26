@@ -12,6 +12,12 @@ qa-bugs run   --config configs/example.config.yml   --input data/sample_bugs.csv
 
 Open the generated `report.html` in a browser.
 
+## KPI Semantics
+
+- `Total Defects` in the HTML summary card shows the total number of rows loaded from the input file (raw input count).
+- Metric computations still apply configured filters (for example `exclude_statuses` such as `Canceled` / `Cancelled`).
+- Because of this, `Total Defects` can be higher than counts used inside filtered metrics.
+
 ## Environment Handling
 
 **Data-Driven Approach:**
