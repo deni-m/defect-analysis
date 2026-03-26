@@ -32,8 +32,8 @@ class FieldMappingService:
     - Manual mapping validation
     """
     
-    REQUIRED_FIELDS = ["key", "created_at", "resolved_at", "status", "priority"]
-    OPTIONAL_FIELDS = ["environment", "fix_version"]
+    REQUIRED_FIELDS = ["key", "created_at", "status", "priority"]
+    OPTIONAL_FIELDS = ["resolved_at", "environment", "fix_version"]
     
     # Fallback fuzzy matching synonyms
     FIELD_SYNONYMS = {
@@ -251,11 +251,11 @@ class FieldMappingService:
 **Canonical fields (REQUIRED - must be mapped):**
 - key: unique bug/defect identifier (e.g., JIRA-123, BUG-456)
 - created_at: timestamp when bug was created (must contain date/time values)
-- resolved_at: timestamp when bug was resolved/closed (must contain date/time values)
 - status: current bug state (e.g., Open, Closed, Resolved, In Progress)
 - priority: bug priority level (e.g., High, Medium, Low, Critical)
 
 **Canonical fields (OPTIONAL - map if available):**
+- resolved_at: timestamp when bug was resolved/closed (must contain date/time values)
 - environment: deployment environment (DEV, QA, PROD, UAT, etc.)
 - fix_version: target fix version or release
 
@@ -282,7 +282,7 @@ fields_mapping:
 ```
 
 **Rules:**
-- ALL REQUIRED fields (key, created_at, resolved_at, status, priority) MUST be mapped ONLY if suitable columns exist
+- ALL REQUIRED fields (key, created_at, status, priority) MUST be mapped ONLY if suitable columns exist
 - If you cannot find a column with appropriate data for a required field, OMIT it - validation will fail anyway
 - Only include mappings you're confident about (>90% certainty based on BOTH name AND data)
 - Use exact column names from the CSV (case-sensitive)
