@@ -43,7 +43,7 @@ class LLMConfig:
     prompts_dir: str = "prompts"  # Path relative to qa_bugs package directory
     provider: str = "azure"
     endpoint: Optional[str] = None
-    deployment: str = "gpt-4o-mini"
+    deployment: str = "gpt-5.4"
     api_version: str = "2024-05-01-preview"
     temperature: float = 1.0
     max_tokens: int = 700
@@ -165,7 +165,7 @@ class AnalysisConfig:
             prompts_dir=llm_dict.get("prompts_dir", "qa_bugs/prompts"),
             provider=llm_dict.get("provider", "azure"),
             endpoint=llm_dict.get("endpoint"),
-            deployment=llm_dict.get("deployment", "gpt-4o-mini"),
+            deployment=llm_dict.get("deployment", "gpt-5.4"),
             api_version=llm_dict.get("api_version", "2024-05-01-preview"),
             temperature=llm_dict.get("temperature", 1.0),
             max_tokens=llm_dict.get("max_tokens", 700),

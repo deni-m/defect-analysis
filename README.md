@@ -156,6 +156,12 @@ Run a single test file:
 python -m pytest tests/test_defect_age.py -q
 ```
 
+Run fast LLM service unit tests (no API/network calls):
+
+```bash
+python -m pytest tests/test_llm_service_unit.py -q
+```
+
 ### Live LLM test
 
 `tests/test_llm_live.py` is marked with `@pytest.mark.live` and performs a real Azure OpenAI request.
@@ -163,7 +169,7 @@ It is skipped unless the following environment variables are set:
 
 * `AZURE_OPENAI_KEY`
 * `AZURE_OPENAI_ENDPOINT`
-* (optional) `AZURE_OPENAI_DEPLOYMENT` (defaults to `gpt-4o`)
+* (optional) `AZURE_OPENAI_DEPLOYMENT` (defaults to `gpt-5.4`)
 * (optional) `AZURE_OPENAI_API_VERSION` (defaults to `2024-05-01-preview`)
 
 Run only live tests:
@@ -177,6 +183,52 @@ Exclude live tests:
 ```bash
 python -m pytest -m "not live"
 ```
+
+### E2E visual regression test (Streamlit + GPT-5-mini)
+
+This live Playwright test starts Streamlit, uploads `data/bugs_sample.csv`, runs analysis, takes a full-page screenshot, compares it with a baseline image, and fails if GPT-5-mini reports a visual regression.
+
+Test file:
+
+```bash
+python -m pytest tests/test_ui_e2e_visual_llm.py -q -m live
+```
+
+Install Playwright browser binaries once:
+
+```bash
+python -m playwright install chromium
+```
+
+Required for model comparison:
+
+* `OPENAI_API_KEY` (preferred), or
+* `AZURE_OPENAI_KEY` + `AZURE_OPENAI_ENDPOINT` (+ optional `AZURE_OPENAI_DEPLOYMENT`)
+
+Baseline workflow:
+
+1. Create/update baseline image:
+
+```bash
+$env:QA_BUGS_E2E_UPDATE_BASELINE="1"; python -m pytest tests/test_ui_e2e_visual_llm.py -q -m live
+```
+
+2. Run normal regression check:
+
+```bash
+Remove-Item Env:QA_BUGS_E2E_UPDATE_BASELINE -ErrorAction SilentlyContinue
+python -m pytest tests/test_ui_e2e_visual_llm.py -q -m live
+```
+
+Artifacts:
+
+* Baseline: `tests/baselines/ui_homepage_baseline.png`
+* Current run screenshot: `tests/artifacts/ui_homepage_current.png`
+* Timeout debug screenshot: `tests/artifacts/ui_analysis_timeout.png` (captured when completion markers are not detected)
+
+Note:
+
+* Streamlit triggers a rerun after successful analysis, so the success toast can be brief. The E2E test waits for stable result markers (for example, `Detailed Metrics` / `AI Summary`) rather than only the transient toast.
 
 ### Adding tests
 

@@ -330,6 +330,90 @@ def test_open_pct_calculation():
     assert kpis.open_pct == 30.0  # (100-70)/100 * 100
 
 
+# --- Tests for leakage_applicable and rejection_applicable ---
+
+
+def test_leakage_applicable_true_when_env_data_sufficient():
+    """leakage_applicable is True when env fill rate >= 5%."""
+    leakage_df = pd.DataFrame([{
+        "rate_percent": 0.0, "leaked": 0, "caught": 10, "total": 100,
+        "leakage_percent": 0.0, "leaked_count": 0,
+        "not_leaked_count": 10, "total_considered": 100, "rows_with_env": 10,  # 10%
+    }])
+    metric_result = _make_metric_result("leakage_rate", {"leakage_overall": leakage_df})
+    kpis = SummaryKPIs()
+    _extract_leakage_kpis(metric_result, kpis)
+    assert kpis.leakage_applicable is True
+
+
+def test_leakage_applicable_false_when_env_fill_rate_too_low():
+    """leakage_applicable is False when env fill rate < 5% (sparse field)."""
+    leakage_df = pd.DataFrame([{
+        "rate_percent": 0.0, "leaked": 0, "caught": 1, "total": 799,
+        "leakage_percent": 0.0, "leaked_count": 0,
+        "not_leaked_count": 1, "total_considered": 799, "rows_with_env": 1,  # 0.1%
+    }])
+    metric_result = _make_metric_result("leakage_rate", {"leakage_overall": leakage_df})
+    kpis = SummaryKPIs()
+    _extract_leakage_kpis(metric_result, kpis)
+    assert kpis.leakage_applicable is False
+
+
+def test_leakage_applicable_none_when_column_missing():
+    """leakage_applicable is None when old table without rows_with_env column."""
+    leakage_df = pd.DataFrame([{
+        "rate_percent": 5.0, "leaked": 2, "total": 40,
+    }])
+    metric_result = _make_metric_result("leakage_rate", {"leakage_overall": leakage_df})
+    kpis = SummaryKPIs()
+    _extract_leakage_kpis(metric_result, kpis)
+    assert kpis.leakage_applicable is None
+
+
+def test_leakage_not_applicable_does_not_set_green_kpi():
+    """When leakage_applicable is False (sparse env), leakage_pct is still set but applicable is False."""
+    # 1 row with env out of 799 = 0.1% fill rate — below the 5% threshold
+    leakage_df = pd.DataFrame([{
+        "rate_percent": 0.0, "leaked": 0, "total": 799, "rows_with_env": 1,
+    }])
+    metric_result = _make_metric_result("leakage_rate", {"leakage_overall": leakage_df})
+    kpis = SummaryKPIs()
+    _extract_leakage_kpis(metric_result, kpis)
+    assert kpis.leakage_applicable is False
+    # Pct is still extracted (metric did run), but caller should treat as N/A
+    assert kpis.leakage_pct == 0.0
+
+
+def test_rejection_applicable_true_when_total_nonzero():
+    """rejection_applicable is True when total > 0."""
+    rejection_df = pd.DataFrame([{
+        "rejected": 0, "total": 15, "rejection_percent": 0.0,
+    }])
+    metric_result = _make_metric_result("rejection_rate", {"rejection_summary": rejection_df})
+    kpis = SummaryKPIs()
+    _extract_rejection_kpis(metric_result, kpis)
+    assert kpis.rejection_applicable is True
+
+
+def test_rejection_applicable_false_when_total_zero():
+    """rejection_applicable is False when total == 0 (empty dataset)."""
+    rejection_df = pd.DataFrame([{
+        "rejected": 0, "total": 0, "rejection_percent": 0.0,
+    }])
+    metric_result = _make_metric_result("rejection_rate", {"rejection_summary": rejection_df})
+    kpis = SummaryKPIs()
+    _extract_rejection_kpis(metric_result, kpis)
+    assert kpis.rejection_applicable is False
+
+
+def test_applicable_flags_absent_when_metrics_not_run():
+    """When leakage/rejection metrics are not in results, applicable flags remain None."""
+    analysis = AnalysisResult(metrics_results={})
+    kpis = calculate_summary_kpis(analysis)
+    assert kpis.leakage_applicable is None
+    assert kpis.rejection_applicable is None
+
+
 def test_zero_total_defects_no_pct():
     """Test that open_pct is None when total is 0."""
     stats_df = pd.DataFrame([

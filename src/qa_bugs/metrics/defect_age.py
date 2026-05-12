@@ -25,7 +25,8 @@ class DefectAge(Metric):
             return MetricResult(
                 self.id,
                 tables={"stats": pd.DataFrame([{"count": 0, "avg_age": 0, "p50": 0, "p90": 0, "avg_age_closed": None, "open_count": 0, "closed_count": 0}])},
-                summary="Missing required field: created_at"
+                summary="Missing required field: created_at",
+                quality_notes=["Metric could not be calculated: required field 'created_at' is missing."],
             )
         
         # Normalize timestamps: read as tz-aware (UTC) then drop tz -> naive UTC

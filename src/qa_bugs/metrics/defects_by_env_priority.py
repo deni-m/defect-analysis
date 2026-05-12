@@ -21,6 +21,10 @@ class DefectsByEnvPriority(Metric):
                 summary=f"Missing required fields: {', '.join(missing)}"
             )
         
+        # Capture fill rate BEFORE exploding (original row count is meaningful)
+        orig_total = len(df)
+        orig_filled = int(df["environment"].astype(str).str.strip().replace({"nan": "", "None": "", "NaN": ""}).ne("").sum())
+
         # Handle multiple environments per defect (comma-separated)
         df = df.copy()
         df["environment"] = df["environment"].astype(str).str.split(",")
@@ -65,10 +69,20 @@ class DefectsByEnvPriority(Metric):
             "count": [total_counts[total_counts["environment"] == e]["count"].values[0] for e in env_order_by_count]
         })
         
+        # Check env fill rate — if too sparse, results are unreliable
+        env_quality_notes = []
+        if orig_total > 0 and orig_filled / orig_total < 0.05:
+            env_quality_notes = [
+                f"Low data quality: only {orig_filled}/{orig_total} rows "
+                f"({orig_filled/orig_total*100:.1f}%) have environment data. "
+                "Results are unreliable and should not be used to draw conclusions."
+            ]
+
         return MetricResult(
             metric_id=self.id,
             tables=tables,
             summary=summary,
+            quality_notes=env_quality_notes,
         )
 
     def build_figure(self, result: MetricResult) -> str:

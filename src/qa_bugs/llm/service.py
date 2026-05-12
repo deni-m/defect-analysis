@@ -53,9 +53,9 @@ class LLMService:
         
         # Model/deployment configuration
         if self.provider == "azure":
-            self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-4o-mini")
+            self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT") or config.get("deployment", "gpt-5.4")
         else:
-            self.deployment = config.get("model", "gpt-4o-mini")  # OpenAI uses 'model' instead of 'deployment'
+            self.deployment = config.get("model", "gpt-5.4")  # OpenAI uses 'model' instead of 'deployment'
         # Optional fallback model for providers that may return empty content intermittently.
         self.fallback_model = config.get("fallback_model")
         if self.provider == "openai" and not self.fallback_model:
@@ -63,6 +63,7 @@ class LLMService:
         
         self.temperature = config.get("temperature", 0.2)
         self.max_tokens = config.get("max_tokens", 700)
+        self.max_tokens_gpt5 = config.get("max_tokens_gpt5")
         self.enable_retries = config.get("enable_retries", False)
         self.prompts_dir = config.get("prompts_dir", "prompts")  # Path relative to qa_bugs package
         self.debug = config.get("debug", False)
@@ -141,14 +142,28 @@ class LLMService:
             return False
         return True
 
+    def _resolve_max_completion_tokens(self, model: str, requested_max_tokens: int) -> int:
+        """Return model-aware max_completion_tokens value."""
+        model_l = (model or "").lower()
+        if "gpt-5" not in model_l:
+            return int(requested_max_tokens)
+
+        if self.max_tokens_gpt5 is not None:
+            return int(self.max_tokens_gpt5)
+
+        # GPT-5 models can spend completion budget on reasoning.
+        # Use a safer floor to reduce empty text responses in fail-fast mode.
+        return max(int(requested_max_tokens), 1200)
+
     def _chat(self, model: str, messages: list[Dict[str, Any]], temperature: float, max_tokens: int, metric_id: str | None = None) -> Tuple[bool, Any, str | None]:
         start = time.time()
         prompt_text = "\n".join(m.get("content", "") for m in messages if m.get("role") == "user")
         try:
+            effective_max_tokens = self._resolve_max_completion_tokens(model, max_tokens)
             req_kwargs: Dict[str, Any] = {
                 "model": model,
                 "messages": messages,
-                "max_completion_tokens": max_tokens,
+                "max_completion_tokens": effective_max_tokens,
             }
             if self._should_send_temperature(model, temperature):
                 req_kwargs["temperature"] = temperature

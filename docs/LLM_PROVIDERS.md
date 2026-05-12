@@ -32,7 +32,7 @@ The QA Bugs Analytics tool now supports both **Azure OpenAI** and direct **OpenA
    ```yaml
    llm:
      provider: openai
-     model: "gpt-4o-mini"  # or gpt-4o, gpt-3.5-turbo, etc.
+       model: "gpt-5.4"  # or gpt-5-mini, gpt-4o-mini, etc.
    ```
 
 ## Configuration Parameters
@@ -42,6 +42,7 @@ The QA Bugs Analytics tool now supports both **Azure OpenAI** and direct **OpenA
 - `provider`: "azure" or "openai" - Which provider to use
 - `temperature`: 0.0-2.0 - Response randomness (some models do not support this parameter)
 - `max_tokens`: integer - Max response length (default: 700)
+- `max_tokens_gpt5`: integer (optional) - Override `max_completion_tokens` for GPT-5 models only
 - `enable_retries`: true/false - Retry on empty/error responses (default: false for faster fail-fast behavior)
 - `debug`: true/false - Enable debug logging
 - `log_prompts`: true/false - Save prompts/responses to files
@@ -54,7 +55,7 @@ The QA Bugs Analytics tool now supports both **Azure OpenAI** and direct **OpenA
 - Environment: `AZURE_OPENAI_KEY`, `AZURE_OPENAI_ENDPOINT`
 
 ### OpenAI-Specific
-- `model`: Model name (e.g., "gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo")
+- `model`: Model name (e.g., "gpt-5.4", "gpt-5-mini", "gpt-4o-mini")
 - `fallback_model`: Optional backup model used when the primary model returns empty content (default: `gpt-4o-mini`)
 - `api_key`: (Optional) API key - better to use environment variable
 - Environment: `OPENAI_API_KEY`
@@ -108,12 +109,13 @@ That's it! The tool will automatically use the correct API client based on your 
 If overall summary says there is no metric data (or appears generic), the model may be returning empty text.
 
 - Check logs in your latest output folder for `llm_*.txt` and `qa_bugs.log`.
-- Prefer stable chat models that return text consistently (for example, `gpt-4o-mini` for OpenAI).
+- Prefer models that match your use case and provider availability (for example, `gpt-5.4` as primary with `fallback_model` configured).
 - Ensure provider settings match your config:
    - OpenAI uses `llm.model`
    - Azure uses `llm.deployment` (or `AZURE_OPENAI_DEPLOYMENT` env var)
 - If your model rejects `temperature` (for example: `Unsupported value: 'temperature'`), the app now retries automatically without `temperature`.
 - If model name contains `gpt-5`, the app proactively omits `temperature` for LLM calls.
+- For GPT-5 models, the app uses a model-aware completion budget. You can set `max_tokens_gpt5` explicitly (otherwise a safer floor is applied).
 - Retries are optional. With `enable_retries: false`, the app does not run extra fallback calls and returns errors immediately.
 - LLM call failures are not silently swallowed:
    - detailed errors are logged to `qa_bugs.log` (including primary/fallback failures),

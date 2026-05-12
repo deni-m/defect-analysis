@@ -13,7 +13,8 @@ class AgeByPriority(Metric):
             return MetricResult(
                 self.id,
                 tables={"age_by_priority": pd.DataFrame(columns=["priority", "avg_age", "p50", "count", "p90"])},
-                summary="Missing required field: created_at"
+                summary="Missing required field: created_at",
+                quality_notes=["Metric could not be calculated: required field 'created_at' is missing."],
             )
         
         d["created_at"]  = pd.to_datetime(d["created_at"],  errors="coerce", utc=True).dt.tz_convert(None)

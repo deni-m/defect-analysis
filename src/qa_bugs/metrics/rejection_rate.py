@@ -10,10 +10,12 @@ class RejectionRate(Metric):
         d = df.copy()
         status_col = "status" if "status" in d.columns else None
         if status_col is None or d.empty:
+            reason = "no status column found" if status_col is None else "empty dataset"
             return MetricResult(
                 self.id,
                 tables={"rejection_summary": pd.DataFrame([{"rejected": 0, "total": 0, "rejection_percent": 0.0}])},
                 summary="No data",
+                quality_notes=[f"Metric could not be calculated: {reason}."],
             )
 
         # Pull config-driven rejected statuses.

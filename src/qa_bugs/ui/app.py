@@ -29,6 +29,21 @@ from qa_bugs.ui.components.results_display import display_results
 import base64
 
 
+class _LocalUploadedFile:
+    """Small adapter to mimic Streamlit UploadedFile for deterministic E2E tests."""
+
+    def __init__(self, path: Path):
+        self._path = path
+        self.name = path.name
+        self.size = path.stat().st_size
+
+    def getvalue(self) -> bytes:
+        return self._path.read_bytes()
+
+    def __fspath__(self) -> str:
+        return str(self._path)
+
+
 def get_base64_icon(icon_path: Path) -> str:
     """Convert icon file to base64 string for inline HTML display."""
     with open(icon_path, "rb") as f:
@@ -168,6 +183,14 @@ def main():
         type=["csv"],
         help="Upload a CSV export from JIRA. Maximum file size: 5MB. Ensure sensitive data is removed or anonymized."
     )
+
+    # Deterministic E2E mode: bypass browser upload quirks by injecting a local CSV path.
+    e2e_csv_path = os.getenv("QA_BUGS_E2E_INPUT_CSV")
+    if uploaded_file is None and e2e_csv_path:
+        local_path = Path(e2e_csv_path)
+        if local_path.exists() and local_path.is_file():
+            uploaded_file = _LocalUploadedFile(local_path)
+            st.info(f"E2E mode active: using local input file {local_path.name}")
 
     if uploaded_file is not None:
         # Reset analysis state when new file is uploaded
@@ -397,7 +420,10 @@ def main():
                 # We need original values like "Production", not "PRODUCTION"
                 env_col = final_config.fields_mapping.get('environment')
                 if env_col and env_col in df.columns:
-                    unique_envs = df[env_col].dropna().unique().tolist()
+                    env_series = df[env_col]
+                    unique_envs = env_series.dropna().unique().tolist()
+                    env_filled_rows = int(env_series.notna().sum())
+                    env_total_rows = len(df)
                     
                     if unique_envs:
                         # Cache environment mapping in session state
@@ -431,7 +457,9 @@ def main():
                                 # Auto-map values
                                 env_mapping_result = env_mapper.auto_map_values(
                                     unique_values=unique_envs,
-                                    allow_passthrough=getattr(config.auto_env_mapping, 'allow_passthrough', True)
+                                    allow_passthrough=getattr(config.auto_env_mapping, 'allow_passthrough', True),
+                                    total_rows=env_total_rows,
+                                    filled_rows=env_filled_rows,
                                 )
                                 
                                 # Cache result

@@ -33,10 +33,12 @@ class SummaryKPIs:
     # Leakage
     leakage_pct: Optional[float] = None
     leaked_count: Optional[int] = None
-    
+    leakage_applicable: Optional[bool] = None  # False when no env data present
+
     # Rejection
     rejection_pct: Optional[float] = None
     rejected_count: Optional[int] = None
+    rejection_applicable: Optional[bool] = None  # False when no data to evaluate against
 
 
 def calculate_summary_kpis(result: AnalysisResult) -> SummaryKPIs:
@@ -173,6 +175,14 @@ def _extract_leakage_kpis(metric_result, kpis: SummaryKPIs) -> None:
         kpis.leaked_count = int(leaked_v) if isinstance(leaked_v, (int, float)) else None
         if kpis.total_defects is None and isinstance(total_v, (int, float)):
             kpis.total_defects = int(total_v)
+        rows_with_env = row.get("rows_with_env")
+        if rows_with_env is not None and isinstance(total_v, (int, float)) and int(total_v) > 0:
+            fill_rate = int(rows_with_env) / int(total_v)
+            kpis.leakage_applicable = fill_rate >= 0.05  # same threshold as env mapper
+        elif rows_with_env is not None:
+            kpis.leakage_applicable = int(rows_with_env) > 0
+        else:
+            kpis.leakage_applicable = None
 
 
 def _extract_rejection_kpis(metric_result, kpis: SummaryKPIs) -> None:
@@ -193,3 +203,4 @@ def _extract_rejection_kpis(metric_result, kpis: SummaryKPIs) -> None:
         kpis.rejected_count = int(rejected_val) if isinstance(rejected_val, (int, float)) else None
         if kpis.total_defects is None and isinstance(total_val, (int, float)):
             kpis.total_defects = int(total_val)
+        kpis.rejection_applicable = bool(int(total_val) > 0) if isinstance(total_val, (int, float)) else None

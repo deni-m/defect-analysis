@@ -74,6 +74,7 @@ class LeakageRate(Metric):
         )
         env_joined = env_lists.apply(lambda lst: ",".join(lst))
         d["environment_normalized"] = env_joined
+        rows_with_env = int(env_lists.apply(bool).sum())
 
         if not isinstance(intended_envs, list):
             raise ValueError("leakage_rate: 'intended_env' must be a list, e.g. ['QA'].")
@@ -142,6 +143,7 @@ class LeakageRate(Metric):
                 "leaked_count": [leaked],
                 "not_leaked_count": [caught],
                 "total_considered": [total],
+                "rows_with_env": [rows_with_env],
             }
         )
 
@@ -243,6 +245,15 @@ class LeakageRate(Metric):
             tables=tables,
             charts=charts,
             summary=f"Leakage={leakage_pct}% (leaked {leaked}/{total})",
+            quality_notes=(
+                [
+                    f"Low data quality: only {rows_with_env}/{total} rows "
+                    f"({rows_with_env/total*100:.1f}%) have environment data. "
+                    "Leakage results are unreliable and should not be used to draw conclusions."
+                ]
+                if total > 0 and rows_with_env / total < 0.05
+                else []
+            ),
         )
 
     def build_figure(self, result: MetricResult) -> str | None:

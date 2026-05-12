@@ -540,9 +540,9 @@ Your response (YAML only):"""
         data = yaml.safe_load(response)
         
         return {
-            "open": data.get("open", []),
-            "closed": data.get("closed", []),
-            "rejected": data.get("rejected", [])
+            "open": data.get("open") or [],
+            "closed": data.get("closed") or [],
+            "rejected": data.get("rejected") or [],
         }
     
     def format_profile_summary(self, profile: DataProfile) -> str:

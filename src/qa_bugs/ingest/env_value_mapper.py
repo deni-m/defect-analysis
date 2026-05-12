@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 import logging
+import re
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -59,24 +60,31 @@ class EnvironmentValueMapper:
         self.llm_enabled = llm_service is not None and llm_service.enabled
         self.target_categories = target_categories or self.DEFAULT_CATEGORIES
     
+    # Minimum fill rate below which environment mapping is skipped (sparse/unreliable field)
+    MIN_FILL_RATE = 0.05
+
     def auto_map_values(
         self,
         unique_values: List[str],
-        allow_passthrough: bool = True
+        allow_passthrough: bool = True,
+        total_rows: Optional[int] = None,
+        filled_rows: Optional[int] = None,
     ) -> EnvironmentMappingResult:
         """
         Auto-map environment values to standard categories.
-        
+
         Args:
             unique_values: List of unique environment values from data
             allow_passthrough: If True, unmapped values stay as-is; if False, they're flagged as errors
-        
+            total_rows: Total number of rows in the dataset (for fill-rate check)
+            filled_rows: Number of rows with a non-null environment value (for fill-rate check)
+
         Returns:
             EnvironmentMappingResult with mapping and validation status
         """
         # Filter out empty/null values
         unique_values = [v for v in unique_values if v and str(v).strip() and str(v).upper() != "NAN"]
-        
+
         if not unique_values:
             logger.warning("No unique environment values to map")
             return EnvironmentMappingResult(
@@ -87,16 +95,89 @@ class EnvironmentValueMapper:
                 unique_values=[],
                 method_used="passthrough"
             )
-        
-        logger.info(f"Auto-mapping {len(unique_values)} unique environment values: {unique_values}")
-        
-        # Try LLM-based mapping first
+
+        # Fill-rate guard: skip mapping if the environment field is almost empty
+        if total_rows and filled_rows is not None:
+            fill_rate = filled_rows / total_rows
+            if fill_rate < self.MIN_FILL_RATE:
+                msg = (
+                    f"Environment field fill rate is only {fill_rate:.1%} "
+                    f"({filled_rows}/{total_rows} rows). "
+                    "Skipping environment mapping — field is too sparse to be reliable."
+                )
+                logger.warning(msg)
+                return EnvironmentMappingResult(
+                    success=True,
+                    value_mapping={},
+                    errors=[],
+                    warnings=[msg],
+                    unique_values=unique_values,
+                    method_used="passthrough"
+                )
+
+        # Separate valid-looking env values from garbage (multi-line, version strings, etc.)
+        valid_values = [v for v in unique_values if self._is_valid_env_value(v)]
+        invalid_values = [v for v in unique_values if not self._is_valid_env_value(v)]
+
+        if invalid_values:
+            logger.warning(
+                "Skipping %d value(s) that do not look like environment names (will be kept as-is): %s",
+                len(invalid_values), invalid_values
+            )
+
+        logger.info(f"Auto-mapping {len(valid_values)} valid environment values: {valid_values}")
+
+        if not valid_values:
+            # All values were garbage — passthrough everything
+            warning = (
+                "All environment values appear to be non-environment data "
+                f"(e.g. device/version strings): {invalid_values}. Values kept as-is."
+            )
+            return EnvironmentMappingResult(
+                success=True,
+                value_mapping={v: str(v).upper() for v in unique_values},
+                errors=[],
+                warnings=[warning],
+                unique_values=unique_values,
+                method_used="passthrough"
+            )
+
+        # Try LLM-based mapping first (only on valid values)
         if self.llm_enabled and self.llm_service:
             logger.info("LLM service enabled, attempting LLM-based environment value mapping")
-            return self._llm_map_values(unique_values, allow_passthrough)
+            result = self._llm_map_values(valid_values, allow_passthrough)
         else:
             logger.info("LLM service not available, using fuzzy keyword matching")
-            return self._fuzzy_map_values(unique_values, allow_passthrough)
+            result = self._fuzzy_map_values(valid_values, allow_passthrough)
+
+        # Merge passthrough mappings for invalid values
+        for v in invalid_values:
+            result.value_mapping[v] = str(v).upper()
+            result.warnings.append(
+                f"Value '{v}' does not look like an environment name — kept as-is."
+            )
+        result.unique_values = unique_values
+        return result
+
+    @staticmethod
+    def _is_valid_env_value(value: str) -> bool:
+        """
+        Return False for values that clearly are not environment names.
+
+        Rejects:
+        - Multi-line values (contain \\n or \\r)
+        - Values longer than 60 characters
+        - Version/device patterns like "iOS 571 Android 541" (word+digits repeated)
+        """
+        s = str(value).strip()
+        if "\n" in s or "\r" in s:
+            return False
+        if len(s) > 60:
+            return False
+        # Reject patterns like "Word 123 Word 456" — looks like device/version info
+        if re.search(r'\b[A-Za-z]+\s+\d+\s+[A-Za-z]+\s+\d+', s):
+            return False
+        return True
     
     def _llm_map_values(
         self,

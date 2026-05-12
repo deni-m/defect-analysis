@@ -203,6 +203,11 @@ The app supports both Streamlit secrets and environment variables:
 - Check Azure OpenAI deployment name matches config
 - Review logs for API errors
 
+### "TypeError: 'list' object cannot be interpreted as an integer"
+
+- This can occur if a Streamlit `expander` gets a non-boolean `expanded` value.
+- Pull the latest UI fixes and restart the Streamlit app.
+
 ## 🔄 Upgrading from CLI
 
 The CLI still works! Both interfaces use the same service layer:

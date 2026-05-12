@@ -27,7 +27,8 @@ class StatusBySeverity(Metric):
 
     def compute(self, df: pd.DataFrame, ctx: dict, profile: Optional["DataProfile"] = None) -> MetricResult:
         if df.empty:
-            return MetricResult(self.id, summary="No data")
+            return MetricResult(self.id, summary="No data",
+                               quality_notes=["Metric could not be calculated: empty dataset."])
 
         d = df.copy()
         # Normalize columns if present

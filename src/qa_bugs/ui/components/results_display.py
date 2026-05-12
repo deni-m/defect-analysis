@@ -45,15 +45,23 @@ def _display_summary_kpis(kpis: SummaryKPIs):
         open_block = f"{pct_fmt(kpis.open_pct)} ({open_count} bugs)"
 
     leakage_block = "-"
-    if kpis.leakage_pct is not None:
+    leakage_class = "risk-na"
+    if kpis.leakage_applicable is False:
+        pass  # stay N/A
+    elif kpis.leakage_pct is not None:
+        leakage_class = ""
         leak_pct_disp = pct_fmt(kpis.leakage_pct)
         if kpis.leaked_count is not None:
             leakage_block = f"{leak_pct_disp} ({kpis.leaked_count} leaked)"
         else:
             leakage_block = f"{leak_pct_disp}"
 
-    rejection_block = "-"
-    if kpis.rejection_pct is not None:
+    rejection_block = "N/A"
+    rejection_class = "risk-na"
+    if kpis.rejection_applicable is False:
+        pass  # stay N/A
+    elif kpis.rejection_pct is not None:
+        rejection_class = ""
         rej_pct_disp = pct_fmt(kpis.rejection_pct)
         if kpis.rejected_count is not None:
             rejection_block = f"{rej_pct_disp} ({kpis.rejected_count} rejected)"
@@ -61,8 +69,7 @@ def _display_summary_kpis(kpis: SummaryKPIs):
             rejection_block = f"{rej_pct_disp}"
 
     # Determine risk classes
-    leakage_class = ""
-    if kpis.leakage_pct is not None:
+    if kpis.leakage_applicable is not False and kpis.leakage_pct is not None:
         if kpis.leakage_pct > 10:
             leakage_class = "risk-high"
         elif kpis.leakage_pct > 5:
@@ -70,8 +77,7 @@ def _display_summary_kpis(kpis: SummaryKPIs):
         else:
             leakage_class = "risk-ok"
 
-    rejection_class = ""
-    if kpis.rejection_pct is not None:
+    if kpis.rejection_applicable is not False and kpis.rejection_pct is not None:
         if kpis.rejection_pct > 20:
             rejection_class = "risk-high"
         elif kpis.rejection_pct > 10:
@@ -106,6 +112,13 @@ def _display_summary_kpis(kpis: SummaryKPIs):
         .kpi-item.risk-ok {{
             background: #e6f9ed;
             border: 1px solid #34c759;
+        }}
+        .kpi-item.risk-na {{
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+        }}
+        .kpi-item.risk-na .kpi-value {{
+            color: #94a3b8;
         }}
         .kpi-label {{
             display: block;

@@ -44,3 +44,30 @@ def test_leakage_rate_fallback():
     # Only one non-empty env -> leaked=1
     assert overall["leaked"] == 1
     assert overall["total"] == 2
+
+
+def test_leakage_rate_rows_with_env_populated():
+    """rows_with_env counts only rows that have at least one env token."""
+    df = pd.DataFrame([
+        {"status": "Open", "environment": "QA"},
+        {"status": "Open", "environment": ""},
+        {"status": "Open", "environment": None},
+        {"status": "Open", "environment": "PROD"},
+    ])
+    metric = LeakageRate()
+    res = metric.compute(df, {"exclude_statuses": []})
+    overall = res.tables["leakage_overall"].iloc[0]
+    assert overall["rows_with_env"] == 2
+
+
+def test_leakage_rate_rows_with_env_all_empty():
+    """rows_with_env is 0 when all environment values are empty."""
+    df = pd.DataFrame([
+        {"status": "Open", "environment": ""},
+        {"status": "Open", "environment": None},
+        {"status": "Open", "environment": ""},
+    ])
+    metric = LeakageRate()
+    res = metric.compute(df, {"exclude_statuses": []})
+    overall = res.tables["leakage_overall"].iloc[0]
+    assert overall["rows_with_env"] == 0

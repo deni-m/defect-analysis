@@ -274,6 +274,11 @@ class AnalysisService:
         # Generate insights per metric
         insights = {}
         for metric_id, result in metrics_results.items():
+            if result.quality_notes:
+                # Metric ran but results are unreliable — skip LLM, return plain explanation
+                notes = " ".join(result.quality_notes)
+                insights[metric_id] = f"⚠️ This metric could not be meaningfully calculated. {notes}"
+                continue
             try:
                 insight = llm_service.analyze_metric(metric_id, result.payload())
                 insights[metric_id] = insight
@@ -422,21 +427,26 @@ class AnalysisService:
         if profile.status_profile and profile.status_profile.confidence >= threshold:
             import logging
             logger = logging.getLogger(__name__)
+            # Guard against None lists if profiler returned nulls
+            sp = profile.status_profile
+            sp.open_statuses = sp.open_statuses or []
+            sp.closed_statuses = sp.closed_statuses or []
+            sp.rejected_statuses = sp.rejected_statuses or []
             logger.info(
-                f"Auto-applying status classification (confidence: {profile.status_profile.confidence:.0%}): "
-                f"open={len(profile.status_profile.open_statuses)}, "
-                f"closed={len(profile.status_profile.closed_statuses)}, "
-                f"rejected={len(profile.status_profile.rejected_statuses)}"
+                f"Auto-applying status classification (confidence: {sp.confidence:.0%}): "
+                f"open={len(sp.open_statuses)}, "
+                f"closed={len(sp.closed_statuses)}, "
+                f"rejected={len(sp.rejected_statuses)}"
             )
             
             # Update metric params with classified statuses
             # This affects metrics that use open_statuses, rejected_statuses, etc.
             if "defect_age" in self.config.metric_params:
-                self.config.metric_params["defect_age"]["open_statuses"] = profile.status_profile.open_statuses
+                self.config.metric_params["defect_age"]["open_statuses"] = sp.open_statuses
             
             if "status_by_severity" in self.config.metric_params:
-                self.config.metric_params["status_by_severity"]["open_statuses"] = profile.status_profile.open_statuses
-                self.config.metric_params["status_by_severity"]["closed_statuses"] = profile.status_profile.closed_statuses
+                self.config.metric_params["status_by_severity"]["open_statuses"] = sp.open_statuses
+                self.config.metric_params["status_by_severity"]["closed_statuses"] = sp.closed_statuses
             
             if "rejection_rate" in self.config.metric_params:
-                self.config.metric_params["rejection_rate"]["rejected_statuses"] = profile.status_profile.rejected_statuses
+                self.config.metric_params["rejection_rate"]["rejected_statuses"] = sp.rejected_statuses

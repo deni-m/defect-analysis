@@ -14,7 +14,8 @@ class CumulativeOpenClosed(Metric):
             return MetricResult(
                 self.id,
                 tables={"summary": pd.DataFrame([{"opened_cum": 0, "closed_cum": 0, "opened_hc_cum": 0, "closed_hc_cum": 0}])},
-                summary="Missing required field: created_at"
+                summary="Missing required field: created_at",
+                quality_notes=["Metric could not be calculated: required field 'created_at' is missing."],
             )
         
         # уніфікуємо дати

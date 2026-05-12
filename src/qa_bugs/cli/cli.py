@@ -155,7 +155,10 @@ def run(
         
         if "environment" in df_temp.columns:
             # Get unique environment values
-            unique_envs = df_temp["environment"].dropna().unique().tolist()
+            env_series = df_temp["environment"]
+            unique_envs = env_series.dropna().unique().tolist()
+            env_filled_rows = int(env_series.notna().sum())
+            env_total_rows = len(df_temp)
             
             if unique_envs:
                 typer.echo("Auto-mapping environment values...")
@@ -196,7 +199,9 @@ def run(
                 # Auto-map values
                 env_result = env_mapper.auto_map_values(
                     unique_values=unique_envs,
-                    allow_passthrough=allow_passthrough
+                    allow_passthrough=allow_passthrough,
+                    total_rows=env_total_rows,
+                    filled_rows=env_filled_rows,
                 )
                 
                 # Check result
