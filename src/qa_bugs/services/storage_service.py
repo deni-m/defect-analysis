@@ -140,8 +140,11 @@ class AzureBlobStorageService:
         blob_data = blob_client.download_blob()
         csv_bytes = blob_data.readall()
 
-        # Parse CSV
-        df = pd.read_csv(BytesIO(csv_bytes))
+        # Parse CSV — try UTF-8 first, fall back to latin-1 for non-UTF-8 exports
+        try:
+            df = pd.read_csv(BytesIO(csv_bytes))
+        except UnicodeDecodeError:
+            df = pd.read_csv(BytesIO(csv_bytes), encoding="latin-1")
         return df
 
     def get_blob_url(self, blob_name: str) -> str:

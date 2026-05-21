@@ -80,7 +80,10 @@ def run(
     analysis_config = AnalysisConfig.from_yaml_dict(config_dict)
 
     # Load CSV data
-    df_raw = pd.read_csv(input)
+    try:
+        df_raw = pd.read_csv(input)
+    except UnicodeDecodeError:
+        df_raw = pd.read_csv(input, encoding="latin-1")
 
     # Handle auto-mapping if enabled (CLI flag overrides config)
     if auto_map or analysis_config.auto_mapping.enabled:

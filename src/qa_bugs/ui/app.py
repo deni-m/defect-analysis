@@ -247,7 +247,13 @@ def main():
         # Load CSV data
         try:
             # Read from uploaded file directly (already in memory)
-            df = pd.read_csv(uploaded_file)
+            # Try UTF-8 first, then fall back to latin-1 for files exported from
+            # Windows/JIRA that may contain non-UTF-8 encoded characters
+            try:
+                df = pd.read_csv(uploaded_file)
+            except UnicodeDecodeError:
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding="latin-1")
 
         except Exception as e:
             st.error(f"Failed to parse CSV: {str(e)}")
