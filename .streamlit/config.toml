@@ -6,7 +6,7 @@ textColor = "#262730"
 font = "sans serif"
 
 [server]
-maxUploadSize = 5  # File size limit in MB
+maxUploadSize = 50  # File size limit in MB
 headless = true
 enableCORS = false
 enableXsrfProtection = true

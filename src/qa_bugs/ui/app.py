@@ -80,7 +80,7 @@ def setup_logging(log_dir: Path):
 icon_path = Path(__file__).parent / "static" / "bug.ico"
 
 st.set_page_config(
-    page_title="QA Bugs Analytics",
+    page_title="QA Bugs Analytics Tool",
     page_icon=str(icon_path) if icon_path.exists() else "🐛",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -131,13 +131,13 @@ def main():
             f"""
             <div style="display: flex; align-items: center; gap: 15px;">
                 <img src="data:image/x-icon;base64,{get_base64_icon(icon_path)}" width="40" style="margin-bottom: 10px;">
-                <h1 style="margin: 0;">QA Bugs Analytics</h1>
+                <h1 style="margin: 0;">QA Bugs Analytics Tool</h1>
             </div>
             """,
             unsafe_allow_html=True
         )
     else:
-        st.title("🐛 QA Bugs Analytics")
+        st.title("🐛 QA Bugs Analytics Tool")
     
     st.markdown("Upload your JIRA CSV export to analyze defects and generate insights.")
     st.markdown("---")
@@ -202,7 +202,7 @@ def main():
                 del st.session_state['analysis_result']
         
         # Validate file size (5MB limit)
-        max_size_mb = 5
+        max_size_mb = 50
         max_size_bytes = max_size_mb * 1024 * 1024
         file_size_mb = uploaded_file.size / (1024 * 1024)
 
