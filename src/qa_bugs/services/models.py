@@ -60,6 +60,7 @@ class ProjectConfig:
     """Project-level configuration."""
     timezone: str = "UTC"
     name: Optional[str] = None
+    version: Optional[str] = None
 
 
 @dataclass
@@ -113,7 +114,8 @@ class AnalysisConfig:
         project_dict = config_dict.get("project", {})
         project = ProjectConfig(
             timezone=project_dict.get("timezone", "UTC"),
-            name=project_dict.get("name")
+            name=project_dict.get("name"),
+            version=project_dict.get("version")
         )
 
         # Extract fields mapping

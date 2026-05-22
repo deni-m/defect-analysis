@@ -613,6 +613,14 @@ def main():
         st.divider()
         display_results(st.session_state['analysis_result'], config)
 
+    # Footer with version
+    version = getattr(config.project, 'version', None) or "N/A"
+    st.markdown(
+        f'<div style="text-align:center; color:#888; font-size:0.8em; margin-top:2rem;">'
+        f'QA Bugs Analytics Tool &nbsp;|&nbsp; v{version}</div>',
+        unsafe_allow_html=True,
+    )
+
 
 if __name__ == "__main__":
     main()
