@@ -44,7 +44,7 @@ def _df_to_records_json_safe(df: pd.DataFrame):
 
 
 class MetricResult:
-    def __init__(self, metric_id: str, tables: Dict[str, pd.DataFrame] = None, charts: Dict[str, Any] = None, summary: str = "", llm_tables: list[str] = None, quality_notes: list[str] = None):
+    def __init__(self, metric_id: str, tables: Dict[str, pd.DataFrame] = None, charts: Dict[str, Any] = None, summary: str = "", llm_tables: list[str] = None, quality_notes: list[str] = None, skip_report: bool = False):
         self.metric_id = metric_id
         self.tables = tables or {}
         self.charts = charts or {}
@@ -53,6 +53,8 @@ class MetricResult:
         self.llm_tables = llm_tables
         # Data quality warnings forwarded to LLM context
         self.quality_notes = quality_notes or []
+        # Optional metrics can set this when there is no meaningful data to show.
+        self.skip_report = skip_report
 
     def payload(self) -> dict:
         # If llm_tables is specified, only include those tables; otherwise include all

@@ -81,6 +81,7 @@ metrics:
     - status_by_severity
     - defect_age
     - age_by_priority  
+    - root_cause_distribution
     - rejection_rate
 
   params:
@@ -91,6 +92,8 @@ metrics:
     leakage_rate:
       intended_env: ["QA"]  # Standard category after auto-mapping (Testing → QA)
       leak_envs: ["PROD"]  # Standard category after auto-mapping (Production → PROD)
+    root_cause_distribution:
+      top_n: 10
     rejection_rate:
       # rejected_resolutions: used when a 'resolution' column is present (resolution-first logic)
       # rejected_statuses: fallback when only 'status' column is available

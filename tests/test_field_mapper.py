@@ -173,6 +173,38 @@ def test_resolution_selects_outcome_column_not_resolution_date():
     assert result.mapping["resolution"] == "Resolution"
 
 
+def test_root_cause_column_detected_by_name_and_non_empty_values():
+    df = pd.DataFrame({
+        "Key": ["BUG-1", "BUG-2", "BUG-3"],
+        "Created": ["2024-01-01", "2024-01-02", "2024-01-03"],
+        "Status": ["Done", "Done", "Open"],
+        "Priority": ["High", "Low", "Medium"],
+        "RCA Category": ["Requirements gap", "Code defect", "Requirements gap"],
+    })
+
+    mapper = FieldMappingService(llm_service=None)
+    result = mapper.auto_detect_mapping(df)
+
+    assert result.valid, f"Mapping should be valid. Errors: {result.errors}"
+    assert result.mapping["root_cause"] == "RCA Category"
+
+
+def test_empty_root_cause_like_column_is_not_mapped():
+    df = pd.DataFrame({
+        "Key": ["BUG-1", "BUG-2"],
+        "Created": ["2024-01-01", "2024-01-02"],
+        "Status": ["Done", "Open"],
+        "Priority": ["High", "Low"],
+        "Root Cause": ["", None],
+    })
+
+    mapper = FieldMappingService(llm_service=None)
+    result = mapper.auto_detect_mapping(df)
+
+    assert result.valid, f"Mapping should be valid. Errors: {result.errors}"
+    assert "root_cause" not in result.mapping
+
+
 def test_resolution_date_is_not_mapped_as_resolution_outcome():
     """A date-like resolution column should not become the resolution outcome field."""
     df = pd.DataFrame({

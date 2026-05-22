@@ -117,7 +117,7 @@ def show():
 
     ### Manual Mapping
     If auto-detection is disabled, the system uses the field mapping from your configuration file 
-    (`configs/example.config.yml`).
+    (`configs/config.yml`).
 
     **Configuration example:**
     ```yaml

@@ -302,6 +302,71 @@ def test_defects_by_priority_integration(base_data):
     assert rows["High"]["percent"] == 40.0
 
 
+def test_root_cause_distribution_integration(base_data):
+    """Test root_cause_distribution metric through AnalysisService."""
+    df = base_data.copy()
+    df["Root Cause"] = [
+        "Requirements gap",
+        "Code defect",
+        "Requirements gap",
+        "",
+        "Environment issue",
+        "Code defect",
+        None,
+    ]
+    config = AnalysisConfig(
+        fields_mapping={
+            "key": "Key",
+            "created_at": "Created",
+            "status": "Status",
+            "priority": "Priority",
+            "root_cause": "Root Cause",
+        },
+        enabled_metrics=["root_cause_distribution"],
+        exclude_statuses=[],
+        metric_params={"root_cause_distribution": {"top_n": 10}},
+        llm=None
+    )
+
+    service = AnalysisService(config)
+    result = service.run_analysis(df=df, llm_enabled=False)
+
+    root_cause_result = result.metrics_results["root_cause_distribution"]
+    rows = {
+        row["root_cause"]: row
+        for row in root_cause_result.tables["root_cause_counts"].to_dict("records")
+    }
+    coverage = root_cause_result.tables["root_cause_coverage"].iloc[0]
+
+    assert rows["Code defect"]["count"] == 2
+    assert rows["Requirements gap"]["count"] == 2
+    assert coverage["specified_defects"] == 5
+    assert coverage["unspecified_defects"] == 2
+
+
+def test_root_cause_distribution_skipped_when_empty_in_analysis_service(base_data):
+    """Do not show optional root cause metric when mapped field has no values."""
+    df = base_data.copy()
+    df["Root Cause"] = [""] * len(df)
+    config = AnalysisConfig(
+        fields_mapping={
+            "key": "Key",
+            "created_at": "Created",
+            "status": "Status",
+            "priority": "Priority",
+            "root_cause": "Root Cause",
+        },
+        enabled_metrics=["root_cause_distribution"],
+        exclude_statuses=[],
+        llm=None
+    )
+
+    service = AnalysisService(config)
+    result = service.run_analysis(df=df, llm_enabled=False)
+
+    assert "root_cause_distribution" not in result.metrics_results
+
+
 def test_multiple_metrics_integration(base_data):
     """Test running multiple metrics together through AnalysisService."""
     config = AnalysisConfig(

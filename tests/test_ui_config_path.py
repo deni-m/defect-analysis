@@ -16,7 +16,7 @@ def test_ui_can_find_config_file():
     
     # Navigate to project root (same logic as in app.py)
     project_root = ui_app_path.parent.parent.parent.parent
-    config_path = project_root / "configs" / "example.config.yml"
+    config_path = project_root / "configs" / "config.yml"
     
     assert config_path.exists(), (
         f"Config file not found at {config_path}. "
@@ -25,7 +25,7 @@ def test_ui_can_find_config_file():
     )
     
     # Verify it's the actual config file we expect
-    assert config_path.name == "example.config.yml"
+    assert config_path.name == "config.yml"
     assert config_path.is_file()
     
     # Verify we can read it
@@ -58,7 +58,7 @@ def test_ui_config_path_matches_cli():
     
     assert ui_configs == cli_configs
     assert ui_configs.exists()
-    assert (ui_configs / "example.config.yml").exists()
+    assert (ui_configs / "config.yml").exists()
 
 
 def test_ui_import_works():

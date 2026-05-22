@@ -62,12 +62,12 @@ The auto field mapping feature uses AI (LLM) to automatically detect and map CSV
 
 ```bash
 # Enable auto-mapping for one run
-qa-bugs run --config configs/example.config.yml \
+qa-bugs run --config configs/config.yml \
   --input data/bugs.csv \
   --auto-map
 
 # With other options
-qa-bugs run --config configs/example.config.yml \
+qa-bugs run --config configs/config.yml \
   --input data/bugs.csv \
   --auto-map \
   --since 2024-01-01 \
@@ -86,7 +86,7 @@ qa-bugs run --config configs/example.config.yml \
 ### Via Config File
 
 ```yaml
-# configs/example.config.yml
+# configs/config.yml
 
 auto_mapping:
   enabled: true      # Enable by default
@@ -286,7 +286,7 @@ After detection (LLM or fuzzy), validation checks:
 ### Full Config Example
 
 ```yaml
-# configs/example.config.yml
+# configs/config.yml
 
 project:
   timezone: "UTC"

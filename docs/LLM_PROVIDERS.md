@@ -6,7 +6,7 @@ The QA Bugs Analytics tool now supports both **Azure OpenAI** and direct **OpenA
 
 ### Option 1: Azure OpenAI (Default)
 
-1. Use `configs/example.config.yml` as your config template
+1. Use `configs/config.yml` as your config template
 2. Set environment variables:
    ```bash
    export AZURE_OPENAI_KEY="your-azure-key"
@@ -64,7 +64,7 @@ The QA Bugs Analytics tool now supports both **Azure OpenAI** and direct **OpenA
 
 ### Run with Azure OpenAI
 ```bash
-qa-bugs run --config configs/example.config.yml --input data/sample_bugs.csv
+qa-bugs run --config configs/config.yml --input data/sample_bugs.csv
 ```
 
 ### Run with OpenAI API
@@ -74,7 +74,7 @@ qa-bugs run --config configs/example.openai.config.yml --input data/sample_bugs.
 
 ### Disable LLM
 ```bash
-qa-bugs run --config configs/example.config.yml --input data/sample_bugs.csv --llm off
+qa-bugs run --config configs/config.yml --input data/sample_bugs.csv --llm off
 ```
 
 ## Switching Between Providers

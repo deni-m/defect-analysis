@@ -70,7 +70,7 @@ Keep instructions short and actionable. Focus on the existing architecture and c
 
 - Config & run examples (from `README.md`):
   - Create venv, install editable: `python -m venv .venv` then Windows activate: `.venv\Scripts\activate` and `pip install -e .`
-  - Run: `qa-bugs --config configs/example.config.yml --input data/sample_bugs.csv --since 2025-09-01 --until 2025-09-30 --metrics defect_age,age_by_priority --llm off`
+  - Run: `qa-bugs --config configs/config.yml --input data/sample_bugs.csv --since 2025-09-01 --until 2025-09-30 --metrics defect_age,age_by_priority --llm off`
   - Streamlit: `streamlit run src/qa_bugs/ui/app.py`
 
 - Tests / quick checks: project is lightweight; verify by importing modules and running the CLI on `data/sample_bugs.csv`.
@@ -79,7 +79,7 @@ Keep instructions short and actionable. Focus on the existing architecture and c
 
 - Style & expectations:
   - Follow existing typing and PEP8 style; the repo uses type hints in key places.
-  - Prefer config-driven parameters (see `configs/example.config.yml`).
+  - Prefer config-driven parameters (see `configs/config.yml`).
   - Write tests BEFORE implementation (TDD). Tests live in `tests/test_<feature>.py`.
   - Always run the full affected test suite after a change to detect regressions.
 

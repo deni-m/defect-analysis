@@ -88,7 +88,7 @@ st.set_page_config(
 
 
 @st.cache_resource
-def load_config(config_file: str = "example.config.yml"):
+def load_config(config_file: str = "config.yml"):
     """
     Load analysis configuration from YAML file.
 

@@ -214,7 +214,7 @@ The CLI still works! Both interfaces use the same service layer:
 
 ```bash
 # CLI (generates HTML report)
-qa-bugs run --config configs/example.config.yml --input data/sample.csv
+qa-bugs run --config configs/config.yml --input data/sample.csv
 
 # Streamlit (web UI)
 streamlit run qa_bugs_ui/app.py

@@ -52,6 +52,18 @@ class ResolutionColumnCandidate:
     reasons: List[str]
 
 
+@dataclass
+class RootCauseColumnCandidate:
+    """Profile of a possible root cause column."""
+    column: str
+    filled_rows: int
+    fill_rate: float
+    unique_count: int
+    unique_values: List[str]
+    score: float
+    reasons: List[str]
+
+
 class FieldMappingService:
     """
     Service for detecting and validating field mappings.
@@ -63,7 +75,7 @@ class FieldMappingService:
     """
     
     REQUIRED_FIELDS = ["key", "created_at", "status", "priority"]
-    OPTIONAL_FIELDS = ["resolved_at", "resolution", "environment", "fix_version"]
+    OPTIONAL_FIELDS = ["resolved_at", "resolution", "environment", "fix_version", "root_cause"]
     MAX_ENV_UNIQUE_VALUES = 25
     MAX_RESOLUTION_UNIQUE_VALUES = 30
     ENV_VALUE_HINTS = {
@@ -103,6 +115,11 @@ class FieldMappingService:
         "priority": ["priority", "severity", "importance", "prio", "priority_level"],
         "environment": ["environment", "env", "target_env", "test_env", "deployment_env"],
         "fix_version": ["fix_version", "target_version", "fixed_in", "version", "release"],
+        "root_cause": [
+            "root_cause", "root cause", "rootcause", "rca", "cause",
+            "cause_category", "defect_cause", "bug_cause", "failure_cause",
+            "reason_category", "root_cause_category",
+        ],
     }
     
     def __init__(self, llm_service: Optional["LLMService"] = None):
@@ -181,6 +198,7 @@ class FieldMappingService:
             mapping = self._parse_llm_response(response_text)
             resolution_warnings = self._apply_resolution_candidate_mapping(mapping, df)
             env_warnings = self._apply_environment_candidate_mapping(mapping, df)
+            root_cause_warnings = self._apply_root_cause_candidate_mapping(mapping, df)
             logger.info(f"LLM detected mapping for {len(mapping)} fields")
             logger.debug(f"Detected mapping: {mapping}")
             
@@ -188,6 +206,7 @@ class FieldMappingService:
             result = self.validate_mapping(mapping, df)
             result.warnings.extend(resolution_warnings)
             result.warnings.extend(env_warnings)
+            result.warnings.extend(root_cause_warnings)
 
             # Supplement LLM mapping with fuzzy matches for any optional fields
             # the LLM may have missed, then re-validate.
@@ -197,9 +216,11 @@ class FieldMappingService:
                 mapping.update(fuzzy_supplements)
                 resolution_warnings = self._apply_resolution_candidate_mapping(mapping, df)
                 env_warnings = self._apply_environment_candidate_mapping(mapping, df)
+                root_cause_warnings = self._apply_root_cause_candidate_mapping(mapping, df)
                 result = self.validate_mapping(mapping, df)
                 result.warnings.extend(resolution_warnings)
                 result.warnings.extend(env_warnings)
+                result.warnings.extend(root_cause_warnings)
 
             result.method_used = "llm"
             result.llm_prompt = prompt
@@ -251,11 +272,13 @@ class FieldMappingService:
         
         resolution_warnings = self._apply_resolution_candidate_mapping(mapping, df)
         env_warnings = self._apply_environment_candidate_mapping(mapping, df)
+        root_cause_warnings = self._apply_root_cause_candidate_mapping(mapping, df)
         logger.info(f"Fuzzy matching completed, detected {len(mapping)} field mappings")
         
         result = self.validate_mapping(mapping, df)
         result.warnings.extend(resolution_warnings)
         result.warnings.extend(env_warnings)
+        result.warnings.extend(root_cause_warnings)
         result.method_used = "fuzzy"
 
         # Add LLM error as warning if present
@@ -283,6 +306,8 @@ class FieldMappingService:
             if canonical == "environment":
                 continue
             if canonical == "resolution":
+                continue
+            if canonical == "root_cause":
                 continue
             if canonical in existing_mapping:
                 continue  # already mapped by LLM
@@ -394,6 +419,100 @@ class FieldMappingService:
             )
 
         return warnings
+
+    def _apply_root_cause_candidate_mapping(self, mapping: Dict[str, Any], df: pd.DataFrame) -> List[str]:
+        """Choose a single best root cause column based on name and non-empty values."""
+        previous = mapping.get("root_cause")
+        excluded_columns = {
+            col
+            for field, mapped in mapping.items()
+            if field != "root_cause"
+            for col in (mapped if isinstance(mapped, list) else [mapped])
+        }
+        candidates = self._profile_root_cause_candidates(df, excluded_columns)
+
+        if not candidates:
+            if "root_cause" in mapping:
+                del mapping["root_cause"]
+                return [
+                    "Root cause mapping ignored because no non-empty root-cause-like column was found"
+                ]
+            return []
+
+        best = candidates[0]
+        mapping["root_cause"] = best.column
+        logger.info(
+            "Selected root cause column '%s' (score=%.2f, filled=%s, unique=%s, values=%s)",
+            best.column,
+            best.score,
+            best.filled_rows,
+            best.unique_count,
+            best.unique_values[:8],
+        )
+
+        warnings = []
+        if previous and previous != best.column:
+            warnings.append(
+                f"Root cause column '{best.column}' selected by value profile instead of '{previous}'"
+            )
+        if len(candidates) > 1 and candidates[0].score - candidates[1].score <= 0.75:
+            second = candidates[1]
+            warnings.append(
+                "Multiple possible root cause columns found; selected "
+                f"'{best.column}' (filled={best.filled_rows}, unique={best.unique_count}) "
+                f"over '{second.column}' (filled={second.filled_rows}, unique={second.unique_count})"
+            )
+        return warnings
+
+    def _profile_root_cause_candidates(
+        self,
+        df: pd.DataFrame,
+        excluded_columns: set[str],
+    ) -> List[RootCauseColumnCandidate]:
+        candidates = []
+
+        for column in df.columns:
+            if column in excluded_columns:
+                continue
+
+            values = self._clean_candidate_values(df[column])
+            filled_rows = int(values.notna().sum())
+            if filled_rows == 0:
+                continue
+
+            if self._series_looks_date_like(values):
+                continue
+
+            unique_values = values.dropna().value_counts().index.astype(str).tolist()
+            unique_count = len(unique_values)
+            if unique_count == 0:
+                continue
+
+            name_score, name_reasons = self._root_cause_name_score(column)
+            if name_score == 0:
+                continue
+
+            fill_rate = filled_rows / len(df) if len(df) else 0
+            avg_len = float(values.dropna().astype(str).str.len().mean())
+            long_text_penalty = 0.75 if avg_len > 120 else 0
+            cardinality_penalty = 0.5 if unique_count > max(20, filled_rows * 0.8) else 0
+            score = name_score + (fill_rate * 2) - long_text_penalty - cardinality_penalty
+
+            reasons = [*name_reasons]
+            reasons.append(f"{unique_count} unique values")
+            reasons.append(f"{fill_rate:.0%} filled")
+
+            candidates.append(RootCauseColumnCandidate(
+                column=column,
+                filled_rows=filled_rows,
+                fill_rate=fill_rate,
+                unique_count=unique_count,
+                unique_values=unique_values[:10],
+                score=score,
+                reasons=reasons,
+            ))
+
+        return sorted(candidates, key=lambda candidate: candidate.score, reverse=True)
 
     def _profile_resolution_candidates(
         self,
@@ -562,6 +681,32 @@ class FieldMappingService:
             return 1.75, reasons
         return 0, reasons
 
+    def _root_cause_name_score(self, column: str) -> tuple[float, List[str]]:
+        normalized = self._normalize_column_label(column)
+        tokens = set(normalized.split("_"))
+        reasons = []
+
+        if normalized in {"root_cause", "rootcause"}:
+            return 3.0, ["exact root cause name"]
+        if normalized == "rca":
+            return 2.75, ["RCA column name"]
+        if "rca" in tokens:
+            reasons.append("RCA in column name")
+            return 2.25, reasons
+        if {"root", "cause"} <= tokens:
+            reasons.append("root cause in column name")
+            return 2.5, reasons
+        if "cause" in tokens and {"category", "type", "group", "reason"} & tokens:
+            reasons.append("cause category-like column name")
+            return 2.0, reasons
+        if {"defect", "bug", "failure", "issue"} & tokens and "cause" in tokens:
+            reasons.append("defect cause-like column name")
+            return 1.75, reasons
+        if normalized in {"cause", "cause_category", "reason_category", "failure_cause"}:
+            reasons.append("cause-like column name")
+            return 1.5, reasons
+        return 0, reasons
+
     def _looks_like_environment_value(self, value: Any) -> bool:
         normalized = self._normalize_column_label(str(value))
         if normalized in self.ENV_VALUE_HINTS:
@@ -697,6 +842,7 @@ class FieldMappingService:
 - resolution: resolution/outcome of the bug (e.g., Fixed, Won't Fix, Cancelled, Duplicate)
 - environment: deployment environment (DEV, QA, PROD, UAT, etc.)
 - fix_version: target fix version or release
+- root_cause: root cause, RCA, or cause category explaining why the defect occurred
 
 **CRITICAL VALIDATION RULES:**
 1. **Look at the DATA, not just column names** - verify sample values match the expected field type
@@ -719,6 +865,7 @@ fields_mapping:
   resolution: <column_name>   # omit if not found
   environment: <column_name>  # omit if not found
   fix_version: <column_name>  # omit if not found
+  root_cause: <column_name>   # omit if not found or empty
 ```
 
 **Rules:**
@@ -727,6 +874,7 @@ fields_mapping:
 - Only include mappings you're confident about (>90% certainty based on BOTH name AND data)
 - Use exact column names from the CSV (case-sensitive)
 - If multiple columns look related to environment, choose only the one whose values most resemble deployment environments
+- If a root cause / RCA-like column exists but is empty, omit it
 - If a canonical field has no clear match with correct data type, omit it from the output
 - Return ONLY the YAML block, no explanation or markdown fences
 

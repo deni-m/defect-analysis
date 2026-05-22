@@ -6,7 +6,7 @@ class Normalizer:
     CANON = {
         "key", "created_at", "resolved_at",
         "status", "resolution", "priority", "fix_version",
-        "environment", "category"
+        "environment", "category", "root_cause"
     }
 
     def __init__(self, mapping: dict, env_value_mapping: Optional[Dict[str, str]] = None):
@@ -81,7 +81,7 @@ class Normalizer:
             if col in out_df.columns:
                 out_df[col] = pd.to_datetime(out_df[col], errors="coerce")
 
-        for col in ("status", "resolution", "priority", "fix_version", "environment", "key"):
+        for col in ("status", "resolution", "priority", "fix_version", "environment", "key", "root_cause"):
             if col in out_df.columns:
                 out_df[col] = out_df[col].astype("string").fillna(pd.NA)
 

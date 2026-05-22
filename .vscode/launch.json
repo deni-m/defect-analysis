@@ -7,7 +7,7 @@
       "request": "launch",
       "module": "qa_bugs.cli.cli",
       "args": [
-        "--config", "configs/example.config.yml",
+        "--config", "configs/config.yml",
         "--input", "data/bugs_sample.csv",
         "--llm", "on"
       ],

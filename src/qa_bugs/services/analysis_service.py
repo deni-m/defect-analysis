@@ -223,7 +223,10 @@ class AnalysisService:
             except TypeError:
                 # Fallback to old signature without profile (backward compatibility)
                 result = metric_cls().compute(data_for_metric, merged_params)
-            
+
+            if getattr(result, "skip_report", False):
+                continue
+
             results[metric_id] = result
 
         return results
@@ -347,6 +350,11 @@ class AnalysisService:
             },
             "defects_by_priority": {
                 "required": ["priority"],
+                "highly_recommended": [],
+                "impact_without": ""
+            },
+            "root_cause_distribution": {
+                "required": ["root_cause"],
                 "highly_recommended": [],
                 "impact_without": ""
             },

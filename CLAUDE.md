@@ -15,8 +15,8 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e .
 
 # Run CLI
-qa-bugs run --config configs/example.config.yml --input data/bugs_sample.csv --llm off
-qa-bugs run --config configs/example.config.yml --input data/bugs_sample.csv --auto-map --since 2025-09-01 --until 2025-09-30
+qa-bugs run --config configs/config.yml --input data/bugs_sample.csv --llm off
+qa-bugs run --config configs/config.yml --input data/bugs_sample.csv --auto-map --since 2025-09-01 --until 2025-09-30
 
 # Run Streamlit UI
 streamlit run src/qa_bugs/ui/app.py
@@ -67,13 +67,13 @@ Every metric **must**:
 **To add a new metric:**
 1. Create `metrics/<metric_id>.py` with class inheriting `Metric`
 2. Register in `metrics/__init__.py`
-3. Add parameters in `configs/example.config.yml` under `metrics.params.<metric_id>`
+3. Add parameters in `configs/config.yml` under `metrics.params.<metric_id>`
 4. Create prompt template at `prompts/metric/<metric_id>.md` (if using LLM)
 5. Add tests in `tests/test_<metric_id>.py`
 
 ## Configuration
 
-- **YAML config** (`configs/example.config.yml`): fields_mapping, auto_mapping, auto_env_mapping, auto_classification, metrics (enabled list + params), llm settings
+- **YAML config** (`configs/config.yml`): fields_mapping, auto_mapping, auto_env_mapping, auto_classification, metrics (enabled list + params), llm settings
 - **Environment variables**: `AZURE_OPENAI_KEY`, `AZURE_OPENAI_ENDPOINT`, `OPENAI_API_KEY`, `JIRA_URL`, `JIRA_USER`, `JIRA_TOKEN` (see `.env.example`)
 - **Streamlit secrets**: `.streamlit/secrets.toml` (git-ignored)
 - All metric parameters come from `cfg` dict (from `metrics.params.<metric_id>` in YAML) — no hardcoded values

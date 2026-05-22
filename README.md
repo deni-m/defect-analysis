@@ -7,7 +7,7 @@ python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\acti
 pip install -e .
 
 # 2) Run on sample data (produces output/run_YYYYMMDD_HHMM/report.html)
-qa-bugs run   --config configs/example.config.yml   --input data/sample_bugs.csv   --since 2025-09-01 --until 2025-09-30   --metrics defect_age,age_by_priority   --llm off
+qa-bugs run   --config configs/config.yml   --input data/sample_bugs.csv   --since 2025-09-01 --until 2025-09-30   --metrics defect_age,age_by_priority   --llm off
 ```
 
 Open the generated `report.html` in a browser.
@@ -135,7 +135,7 @@ Adjust batch size or limit:
 
 ### 4. Generate report on exported data
 ```bash
-qa-bugs --config configs/example.config.yml --input data/jira_issues.csv --llm off
+qa-bugs --config configs/config.yml --input data/jira_issues.csv --llm off
 ```
 
 The CSV headers will match the configured `fields_mapping` (e.g., `Created`, `Resolved`, `FixVersion`).
