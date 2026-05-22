@@ -274,6 +274,34 @@ def test_defects_by_env_priority_integration(base_data):
     assert "count" in by_env.columns
 
 
+def test_defects_by_priority_integration(base_data):
+    """Test defects_by_priority metric through AnalysisService."""
+    config = AnalysisConfig(
+        fields_mapping={
+            "key": "Key",
+            "created_at": "Created",
+            "resolved_at": "resolutiondate",
+            "status": "Status",
+            "priority": "Priority",
+        },
+        enabled_metrics=["defects_by_priority"],
+        exclude_statuses=["Cancelled", "Won't Fix"],
+        llm=None
+    )
+
+    service = AnalysisService(config)
+    result = service.run_analysis(df=base_data, llm_enabled=False)
+
+    priority_result = result.metrics_results["defects_by_priority"]
+    tbl = priority_result.tables["priority_counts"]
+    rows = {row["priority"]: row for row in tbl.to_dict("records")}
+
+    assert rows["High"]["count"] == 2
+    assert rows["Low"]["count"] == 2
+    assert rows["Medium"]["count"] == 1
+    assert rows["High"]["percent"] == 40.0
+
+
 def test_multiple_metrics_integration(base_data):
     """Test running multiple metrics together through AnalysisService."""
     config = AnalysisConfig(

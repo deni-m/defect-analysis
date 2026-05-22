@@ -7,6 +7,7 @@ from qa_bugs.metrics.base import Metric, MetricResult
 class DefectsByEnvPriority(Metric):
     id = "defects_by_env_priority"
     display_name = "Defects by Environment & Priority"
+    UNSPECIFIED_ENVIRONMENT = "Unspecified"
 
     def compute(self, df: pd.DataFrame, params: dict) -> MetricResult:
         # Validate required columns
@@ -24,13 +25,17 @@ class DefectsByEnvPriority(Metric):
         
         # Capture fill rate BEFORE exploding (original row count is meaningful)
         orig_total = len(df)
-        orig_filled = int(df["environment"].astype(str).str.strip().replace({"nan": "", "None": "", "NaN": ""}).ne("").sum())
+        orig_filled = int(
+            df["environment"]
+            .apply(lambda value: not self._is_missing_environment_value(value))
+            .sum()
+        )
 
         # Handle multiple environments per defect (comma-separated)
         df = df.copy()
-        df["environment"] = df["environment"].astype(str).str.split(",")
+        df["environment"] = df["environment"].apply(self._split_environment_value)
         df = df.explode("environment")
-        df["environment"] = df["environment"].str.strip().str.upper()
+        df["environment"] = df["environment"].astype("string").str.strip()
         
         tbl = (
             df.groupby(["environment", "priority"])
@@ -62,7 +67,20 @@ class DefectsByEnvPriority(Metric):
             df.groupby("environment").size().reset_index(name="raw_count").sort_values("raw_count", ascending=False)
         )
         
-        tables = {"env_priority": tbl, "env_counts": env_counts}
+        unspecified_count = orig_total - orig_filled
+        environment_coverage = pd.DataFrame([{
+            "total_defects": orig_total,
+            "tagged_defects": orig_filled,
+            "unspecified_defects": unspecified_count,
+            "tagged_percent": round(orig_filled / orig_total * 100.0, 2) if orig_total else 0.0,
+            "unspecified_percent": round(unspecified_count / orig_total * 100.0, 2) if orig_total else 0.0,
+        }])
+
+        tables = {
+            "env_priority": tbl,
+            "env_counts": env_counts,
+            "environment_coverage": environment_coverage,
+        }
         
         # Store discovered environments for other metrics to use
         tables["discovered_environments"] = pd.DataFrame({
@@ -85,6 +103,27 @@ class DefectsByEnvPriority(Metric):
             summary=summary,
             quality_notes=env_quality_notes,
         )
+
+    @classmethod
+    def _is_missing_environment_value(cls, value: Any) -> bool:
+        if pd.isna(value):
+            return True
+        normalized = str(value).strip().lower()
+        return normalized in {"", "nan", "none", "<na>", "null"}
+
+    @classmethod
+    def _split_environment_value(cls, value: Any) -> list[str]:
+        if cls._is_missing_environment_value(value):
+            return [cls.UNSPECIFIED_ENVIRONMENT]
+
+        tokens = []
+        for token in str(value).split(","):
+            cleaned = token.strip()
+            if cls._is_missing_environment_value(cleaned):
+                continue
+            tokens.append(cleaned.upper())
+
+        return tokens or [cls.UNSPECIFIED_ENVIRONMENT]
 
     def build_figure(self, result: MetricResult) -> str:
         tbl = result.tables.get("env_priority")
@@ -114,7 +153,14 @@ class DefectsByEnvPriority(Metric):
             category_orders={"environment": category_order} if category_order is not None else None,
             color_discrete_map=priority_colors,
         )
-        fig.update_layout(margin=dict(l=10, r=10, t=40, b=50), height=350)
+        fig.update_layout(
+            margin=dict(l=90, r=24, t=48, b=64),
+            height=420,
+            yaxis_title_standoff=16,
+            xaxis_title_standoff=12,
+        )
+        fig.update_yaxes(automargin=True, ticklabelposition="outside")
+        fig.update_xaxes(automargin=True)
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
     @classmethod

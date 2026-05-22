@@ -54,3 +54,47 @@ def test_prefixed_priorities_get_non_default_colors():
     assert "#e67e22" in html
     assert "#f39c12" in html
     assert "#3498db" in html
+
+
+def test_chart_has_sufficient_left_margin_for_y_axis_labels():
+    tbl = pd.DataFrame([
+        {"environment": "NON_PROD", "priority": "0-Showstopper", "count": 100},
+    ])
+    result = MetricResult(
+        "defects_by_env_priority",
+        tables={
+            "env_priority": tbl,
+            "discovered_environments": pd.DataFrame([{"environment": "NON_PROD", "count": 100}]),
+        },
+    )
+
+    html = DefectsByEnvPriority().build_figure(result)
+
+    assert '"l":90' in html
+    assert '"height":420' in html
+    assert '"ticklabelposition":"outside"' in html
+
+
+def test_blank_environment_values_are_labeled_unspecified_with_coverage():
+    df = pd.DataFrame([
+        {"environment": "", "priority": "High"},
+        {"environment": None, "priority": "Low"},
+        {"environment": pd.NA, "priority": "Critical"},
+        {"environment": "QA", "priority": "High"},
+        {"environment": "PROD, ", "priority": "Low"},
+    ])
+
+    res = DefectsByEnvPriority().compute(df, {})
+    env_priority = res.tables["env_priority"]
+    coverage = res.tables["environment_coverage"].iloc[0]
+
+    env_counts = env_priority.groupby("environment", observed=False)["count"].sum().to_dict()
+    assert "<NA>" not in env_counts
+    assert "N/A" not in env_counts
+    assert env_counts["Unspecified"] == 3
+    assert env_counts["QA"] == 1
+    assert env_counts["PROD"] == 1
+    assert coverage["total_defects"] == 5
+    assert coverage["tagged_defects"] == 2
+    assert coverage["unspecified_defects"] == 3
+    assert coverage["unspecified_percent"] == 60.0

@@ -29,6 +29,7 @@ def _run_uploaded_csv(csv_name: str, *, auto_classification: bool = True):
             "defect_age",
             "age_by_priority",
             "cumulative_open_closed",
+            "defects_by_priority",
             "leakage_rate",
             "defects_by_env_priority",
             "rejection_rate",
@@ -60,6 +61,7 @@ def test_uploaded_csv_calculates_expected_metrics_from_detected_fields():
         "defect_age",
         "age_by_priority",
         "cumulative_open_closed",
+        "defects_by_priority",
         "leakage_rate",
         "defects_by_env_priority",
         "rejection_rate",
@@ -92,6 +94,13 @@ def test_uploaded_csv_calculates_expected_metrics_from_detected_fields():
     assert rejection["total"] == 6
     assert rejection["rejected"] == 3
     assert rejection["rejection_percent"] == 50.0
+
+    priority_counts = result.metrics_results["defects_by_priority"].tables["priority_counts"]
+    priority_rows = {row["priority"]: row for row in priority_counts.to_dict("records")}
+    assert priority_rows["High"]["count"] == 2
+    assert priority_rows["Medium"]["count"] == 2
+    assert priority_rows["Low"]["count"] == 2
+    assert priority_rows["High"]["percent"] == pytest.approx(33.33)
 
     env_priority = result.metrics_results["defects_by_env_priority"].tables["env_priority"]
     env_counts = env_priority.groupby("environment", observed=False)["count"].sum().to_dict()
