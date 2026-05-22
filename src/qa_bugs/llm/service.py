@@ -7,6 +7,14 @@ from .prompt_manager import PromptManager
 
 logger = logging.getLogger(__name__)
 
+ANALYSIS_STYLE_GUARDRAILS = """\
+### Global Analysis Style Rules
+- Avoid vague quantifiers such as "some", "most", "many", "few", "several", "large share", or "small share" unless the same sentence includes a concrete count or percentage from the provided data.
+- Prefer exact wording such as "7,576 defects (75.78%)" or "3 of 5 environments" when the data is available.
+- If exact data is not available, say "the provided data does not quantify this" instead of using vague scale words.
+- Do not use generic intensity words such as "significant", "notable", or "substantial" without a count, percentage, or clear threshold from the data.
+"""
+
 
 @dataclass
 class _LLMDebugEvent:
@@ -317,6 +325,9 @@ class LLMService:
 
         return result
 
+    def _with_analysis_style_guardrails(self, prompt_template: str) -> str:
+        return f"{prompt_template.rstrip()}\n\n{ANALYSIS_STYLE_GUARDRAILS}"
+
     def analyze_metric(self, metric_id: str, payload: dict) -> str:
         if not self.enabled:
             return ""
@@ -326,7 +337,9 @@ class LLMService:
         context_csv = self._payload_to_csv(trimmed_payload)
         # Apply config-based template substitutions, then data context
         full_prompt = (
-            self._apply_config_templates(prompt_template, metric_id)
+            self._with_analysis_style_guardrails(
+                self._apply_config_templates(prompt_template, metric_id)
+            )
             .replace("{{context}}", context_csv)
         )
         context = context_csv
@@ -386,7 +399,7 @@ class LLMService:
                 "Check model/provider configuration and run analysis again."
             )
         full_prompt = (
-            prompt_template
+            self._with_analysis_style_guardrails(prompt_template)
             .replace("{{metrics_context}}", context_block)            
         )
         if len(full_prompt) > self.max_prompt_chars:

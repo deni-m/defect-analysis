@@ -183,3 +183,34 @@ def test_model_fallback_retries_with_larger_budget_when_enabled(monkeypatch):
     assert len(calls) == 2
     assert calls[0]["max_tokens"] == 700
     assert calls[1]["max_tokens"] == 2100
+
+
+def test_analyze_metric_adds_global_specificity_guardrails(monkeypatch):
+    recorder = _CreateRecorder([_FakeResponse("ok")])
+    service = _make_service(monkeypatch, recorder, deployment="gpt-4o")
+    monkeypatch.setattr(service.pm, "load_metric_prompt", lambda metric_id: "Metric prompt\n{{context}}")
+
+    result = service.analyze_metric(
+        "defects_by_env_priority",
+        {"metric_id": "defects_by_env_priority", "tables": {"sample": [{"count": 3}]}},
+    )
+
+    assert result == "ok"
+    prompt = recorder.calls[0]["messages"][0]["content"]
+    assert "Avoid vague quantifiers" in prompt
+    assert '"some", "most", "many", "few", "several"' in prompt
+    assert "concrete count or percentage" in prompt
+
+
+def test_summarize_texts_adds_global_specificity_guardrails(monkeypatch):
+    recorder = _CreateRecorder([_FakeResponse("summary")])
+    service = _make_service(monkeypatch, recorder, deployment="gpt-4o")
+    monkeypatch.setattr(service.pm, "load_summary_prompt", lambda: "Summary prompt\n{{metrics_context}}")
+
+    result = service.summarize_texts({"defects_by_priority": "Minor is 75.78%."})
+
+    assert result == "summary"
+    prompt = recorder.calls[0]["messages"][0]["content"]
+    assert "Avoid vague quantifiers" in prompt
+    assert "If exact data is not available" in prompt
+    assert "defects_by_priority" in prompt
