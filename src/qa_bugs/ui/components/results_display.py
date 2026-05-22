@@ -183,12 +183,27 @@ def _display_data_profile(profile: DataProfile):
         confidence_pct = profile.overall_confidence * 100
         confidence_color = "🟢" if confidence_pct >= 80 else "🟡" if confidence_pct >= 60 else "🔴"
         st.metric("Overall Confidence", f"{confidence_color} {confidence_pct:.0f}%")
-        
-        # Create tabs for different profile sections
-        tabs = st.tabs(["📊 Status", "⚠️ Priority", "🌍 Environment", "📋 Summary"])
-        
+
+        # Build tab list dynamically based on available profiles
+        tab_defs = [("📊 Status", "status"), ("⚠️ Priority", "priority"), ("🌍 Environment", "environment")]
+        if profile.resolution_profile:
+            tab_defs.append(("🔄 Resolution", "resolution"))
+        if profile.fix_version_profile:
+            tab_defs.append(("🏷️ Fix Version", "fix_version"))
+        if profile.category_profile:
+            tab_defs.append(("📂 Category", "category"))
+        tab_defs.append(("📋 Summary", "summary"))
+        tab_defs.append(("🔍 Debug", "debug"))
+
+        tab_labels = [t[0] for t in tab_defs]
+        tab_keys = [t[1] for t in tab_defs]
+        tabs = st.tabs(tab_labels)
+
+        def _tab(key: str):
+            return tabs[tab_keys.index(key)]
+
         # Status Profile Tab
-        with tabs[0]:
+        with _tab("status"):
             if profile.status_profile:
                 sp = profile.status_profile
                 st.markdown(f"**Classification Method:** {sp.method_used.upper()} (Confidence: {sp.confidence*100:.0f}%)")
@@ -216,7 +231,7 @@ def _display_data_profile(profile: DataProfile):
                 st.info("Status classification not performed")
         
         # Priority Profile Tab
-        with tabs[1]:
+        with _tab("priority"):
             if profile.priority_profile:
                 pp = profile.priority_profile
                 st.markdown(f"**Classification Method:** {pp.method_used.upper()} (Confidence: {pp.confidence*100:.0f}%)")
@@ -232,7 +247,7 @@ def _display_data_profile(profile: DataProfile):
                 st.info("Priority classification not performed")
         
         # Environment Profile Tab
-        with tabs[2]:
+        with _tab("environment"):
             if profile.environment_profile:
                 ep = profile.environment_profile
                 st.markdown(f"**Classification Method:** {ep.method_used.upper()} (Confidence: {ep.confidence*100:.0f}%)")
@@ -257,9 +272,64 @@ def _display_data_profile(profile: DataProfile):
                     st.warning("⚠️ **Warnings:**\n" + "\n".join(f"- {w}" for w in ep.warnings))
             else:
                 st.info("Environment classification not performed")
-        
+
+        # Resolution Profile Tab (only shown when resolution field is present)
+        if profile.resolution_profile:
+            with _tab("resolution"):
+                rp = profile.resolution_profile
+                st.markdown(f"**Classification Method:** {rp.method_used.upper()} (Confidence: {rp.confidence*100:.0f}%)")
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.markdown("**✅ Accepted Resolutions**")
+                    for r in rp.accepted_resolutions:
+                        st.markdown(f"- `{r}`")
+                with col2:
+                    st.markdown("**❌ Rejected Resolutions**")
+                    for r in rp.rejected_resolutions:
+                        st.markdown(f"- `{r}`")
+                with col3:
+                    st.markdown("**➖ Other / Unresolved**")
+                    for r in rp.other_resolutions:
+                        st.markdown(f"- `{r}`")
+
+                if rp.warnings:
+                    st.warning("⚠️ **Warnings:**\n" + "\n".join(f"- {w}" for w in rp.warnings))
+
+        # Fix Version Profile Tab (only shown when fix_version field is present)
+        if profile.fix_version_profile:
+            with _tab("fix_version"):
+                fvp = profile.fix_version_profile
+                st.markdown(f"**Unique values:** {fvp.unique_count}  |  **Fill rate:** {fvp.completeness*100:.1f}%")
+                if fvp.top_values:
+                    import pandas as _pd
+                    st.markdown("**Top Fix Versions by frequency:**")
+                    st.dataframe(
+                        _pd.DataFrame(fvp.top_values, columns=["Fix Version", "Count"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("No fix version values found.")
+
+        # Category Profile Tab (only shown when category field is present)
+        if profile.category_profile:
+            with _tab("category"):
+                cp = profile.category_profile
+                st.markdown(f"**Unique values:** {cp.unique_count}  |  **Fill rate:** {cp.completeness*100:.1f}%")
+                if cp.top_values:
+                    import pandas as _pd
+                    st.markdown("**Top Categories by frequency:**")
+                    st.dataframe(
+                        _pd.DataFrame(cp.top_values, columns=["Category", "Count"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("No category values found.")
+
         # Summary Tab
-        with tabs[3]:
+        with _tab("summary"):
             st.markdown("**📁 Available Fields:**")
             st.write(", ".join(f"`{field}`" for field in profile.available_fields))
             
@@ -281,6 +351,61 @@ def _display_data_profile(profile: DataProfile):
                 st.markdown("**⚠️ Missing Requirements for Some Metrics:**")
                 for metric, reqs in profile.missing_requirements.items():
                     st.markdown(f"- `{metric}`: Missing {', '.join(f'`{r}`' for r in reqs)}")
+
+        # Debug Tab — shows raw LLM prompts/responses for field mapping and env mapping
+        with _tab("debug"):
+            fm_result = st.session_state.get("field_mapping_result")
+            env_result = st.session_state.get("env_mapping_result")
+
+            st.markdown("### 🗂️ Field Mapping")
+            if fm_result:
+                method = getattr(fm_result, "method_used", "unknown")
+                st.markdown(f"**Method:** `{method}`")
+
+                if getattr(fm_result, "llm_error", None):
+                    st.error(f"LLM error: {fm_result.llm_error}")
+
+                st.markdown(f"**Final mapping ({len(fm_result.mapping)} fields):**")
+                import pandas as _pd
+                st.dataframe(
+                    _pd.DataFrame(
+                        [{"Canonical field": k, "CSV column": v} for k, v in fm_result.mapping.items()]
+                    ),
+                    use_container_width=True, hide_index=True,
+                )
+
+                if getattr(fm_result, "llm_prompt", None):
+                    with st.expander("LLM prompt sent", expanded=False):
+                        st.code(fm_result.llm_prompt, language="markdown")
+
+                if getattr(fm_result, "llm_raw_response", None):
+                    with st.expander("LLM raw response", expanded=True):
+                        st.code(fm_result.llm_raw_response, language="yaml")
+                elif method == "fuzzy":
+                    st.info("Fuzzy matching was used — no LLM response available.")
+            else:
+                st.info("No field mapping result in session yet.")
+
+            st.divider()
+            st.markdown("### 🌍 Environment Value Mapping")
+            if env_result:
+                method = getattr(env_result, "method_used", "unknown")
+                st.markdown(f"**Method:** `{method}`")
+
+                if getattr(env_result, "llm_error", None):
+                    st.error(f"LLM error: {env_result.llm_error}")
+
+                if getattr(env_result, "llm_prompt", None):
+                    with st.expander("LLM prompt sent", expanded=False):
+                        st.code(env_result.llm_prompt, language="markdown")
+
+                if getattr(env_result, "llm_raw_response", None):
+                    with st.expander("LLM raw response", expanded=True):
+                        st.code(env_result.llm_raw_response, language="yaml")
+                elif method in ("fuzzy", "passthrough"):
+                    st.info(f"Method was `{method}` — no LLM response available.")
+            else:
+                st.info("No environment mapping result in session yet.")
 
 
 def display_results(result: AnalysisResult, config: AnalysisConfig):

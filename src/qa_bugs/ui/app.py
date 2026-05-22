@@ -422,11 +422,16 @@ def main():
             if auto_map_env_enabled:
                 st.markdown("### 🌍 Environment Value Mapping")
                 
-                # Extract environment column from raw DF (before any normalization)
-                # We need original values like "Production", not "PRODUCTION"
+                # Extract environment values from raw DF before uppercasing. The mapping
+                # can be a single column or duplicate columns like Environment.1.
                 env_col = final_config.fields_mapping.get('environment')
-                if env_col and env_col in df.columns:
-                    env_series = df[env_col]
+                env_cols = env_col if isinstance(env_col, list) else [env_col]
+                env_cols = [col for col in env_cols if col in df.columns]
+                if env_cols:
+                    env_series = pd.Series(pd.NA, index=df.index, dtype="object")
+                    for col in env_cols:
+                        values = df[col].replace(r"^\s*$", pd.NA, regex=True)
+                        env_series = env_series.combine_first(values)
                     unique_envs = env_series.dropna().unique().tolist()
                     env_filled_rows = int(env_series.notna().sum())
                     env_total_rows = len(df)

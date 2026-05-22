@@ -69,6 +69,20 @@ def test_data_profiler_basic():
     assert "PROD" in profile.environment_profile.all_environments
 
 
+def test_non_prod_is_not_classified_as_production_environment():
+    """NON_PROD contains PROD text but must remain non-production."""
+    profiler = DataProfiler(llm_service=None)
+
+    profile = profiler._classify_environments(
+        pd.Series(["DEV", "ETE", "PROD", "NON_PROD"]),
+        config=None,
+    )
+
+    assert profile.production_envs == ["PROD"]
+    assert "NON_PROD" in profile.non_production_envs
+    assert profile.pipeline_order.index("NON_PROD") < profile.pipeline_order.index("PROD")
+
+
 def test_profile_caching():
     """Test that profiler caches results by data fingerprint."""
     profiler = DataProfiler(llm_service=None, cache_enabled=True)

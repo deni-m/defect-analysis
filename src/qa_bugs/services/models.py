@@ -22,7 +22,7 @@ class AutoEnvMappingConfig:
     """Configuration for automatic environment value mapping."""
     enabled: bool = False
     allow_passthrough: bool = True
-    target_categories: List[str] = field(default_factory=lambda: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"])
+    target_categories: List[str] = field(default_factory=lambda: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD", "NON_PROD"])
 
 
 @dataclass
@@ -74,7 +74,7 @@ class AnalysisConfig:
     project: ProjectConfig = field(default_factory=ProjectConfig)
 
     # Field mappings from CSV to canonical schema
-    fields_mapping: Dict[str, str] = field(default_factory=dict)
+    fields_mapping: Dict[str, Any] = field(default_factory=dict)
 
     # Automatic field mapping configuration
     auto_mapping: AutoMappingConfig = field(default_factory=AutoMappingConfig)
@@ -131,7 +131,7 @@ class AnalysisConfig:
         auto_env_mapping = AutoEnvMappingConfig(
             enabled=auto_env_mapping_dict.get("enabled", False),
             allow_passthrough=auto_env_mapping_dict.get("allow_passthrough", True),
-            target_categories=auto_env_mapping_dict.get("target_categories", ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"])
+            target_categories=auto_env_mapping_dict.get("target_categories", ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD", "NON_PROD"])
         )
 
         # Extract manual environment value mapping

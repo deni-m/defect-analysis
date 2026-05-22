@@ -5,6 +5,8 @@ import pandas as pd
 from qa_bugs.ingest.field_mapper import FieldMappingService
 from qa_bugs.llm.service import LLMService
 
+pytestmark = pytest.mark.live  # skip with -m "not live"
+
 
 @pytest.fixture
 def llm_service():

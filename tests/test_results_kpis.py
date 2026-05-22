@@ -290,7 +290,10 @@ def test_extract_rejection_kpis():
 
     assert kpis.rejection_pct == 20.0
     assert kpis.rejected_count == 6
-    assert kpis.total_defects == 30
+    assert kpis.rejection_applicable is True
+    # rejection_rate uses unfiltered data, so it must NOT set total_defects
+    # (total_defects is overridden by analysis_service with the raw input row count)
+    assert kpis.total_defects is None
 
 
 def test_extract_rejection_kpis_alt_table():
@@ -305,7 +308,9 @@ def test_extract_rejection_kpis_alt_table():
 
     assert kpis.rejection_pct == 20.0
     assert kpis.rejected_count == 8
-    assert kpis.total_defects == 40
+    assert kpis.rejection_applicable is True
+    # rejection_rate uses unfiltered data, so it must NOT set total_defects
+    assert kpis.total_defects is None
 
 
 def test_open_pct_calculation():

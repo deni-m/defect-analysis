@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Set
 from datetime import date
@@ -47,6 +48,28 @@ class EnvironmentProfile:
 
 
 @dataclass
+class ResolutionProfile:
+    """AI-classified resolution semantics."""
+    all_resolutions: List[str]
+    rejected_resolutions: List[str]   # Won't Fix, Duplicate, Invalid, etc.
+    accepted_resolutions: List[str]   # Fixed, Done, Resolved, etc.
+    other_resolutions: List[str]      # Unresolved, Open, etc.
+    confidence: float
+    method_used: str
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class FieldValueProfile:
+    """Simple value-distribution profile for a categorical field (fix_version, category, etc.)."""
+    field_name: str
+    top_values: List[Tuple[str, int]]   # (value, count) sorted by frequency desc
+    total_count: int
+    unique_count: int
+    completeness: float                 # fill rate 0.0–1.0
+
+
+@dataclass
 class DataProfile:
     """Comprehensive data understanding for downstream processing."""
     # Data fingerprint for caching
@@ -63,6 +86,11 @@ class DataProfile:
     status_profile: Optional[StatusProfile] = None
     priority_profile: Optional[PriorityProfile] = None
     environment_profile: Optional[EnvironmentProfile] = None
+    resolution_profile: Optional[ResolutionProfile] = None
+    
+    # Simple value-distribution profiles
+    fix_version_profile: Optional[FieldValueProfile] = None
+    category_profile: Optional[FieldValueProfile] = None
     
     # Metric applicability
     applicable_metrics: List[str] = field(default_factory=list)
@@ -175,6 +203,18 @@ class DataProfiler:
         environment_profile = None
         if classify_environments and "environment" in df.columns:
             environment_profile = self._classify_environments(df["environment"], config)
+
+        resolution_profile = None
+        if "resolution" in df.columns:
+            resolution_profile = self._classify_resolutions(df["resolution"])
+
+        fix_version_profile = None
+        if "fix_version" in df.columns:
+            fix_version_profile = self._profile_field_values(df["fix_version"], "fix_version")
+
+        category_profile = None
+        if "category" in df.columns:
+            category_profile = self._profile_field_values(df["category"], "category")
         
         # Metric applicability analysis
         applicable_metrics, missing_requirements = self._analyze_metric_applicability(df)
@@ -187,6 +227,8 @@ class DataProfiler:
             confidence_scores.append(priority_profile.confidence)
         if environment_profile and environment_profile.confidence > 0:
             confidence_scores.append(environment_profile.confidence)
+        if resolution_profile and resolution_profile.confidence > 0:
+            confidence_scores.append(resolution_profile.confidence)
         
         overall_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
         
@@ -199,6 +241,9 @@ class DataProfiler:
             status_profile=status_profile,
             priority_profile=priority_profile,
             environment_profile=environment_profile,
+            resolution_profile=resolution_profile,
+            fix_version_profile=fix_version_profile,
+            category_profile=category_profile,
             applicable_metrics=applicable_metrics,
             missing_requirements=missing_requirements,
             overall_confidence=overall_confidence
@@ -430,28 +475,48 @@ class DataProfiler:
                 warnings=["No environment values found in data"]
             )
         
-        # Simple classification by keywords
-        prod_keywords = ["PROD", "PRODUCTION", "LIVE", "RELEASE"]
-        production_envs = [e for e in unique_envs if any(kw in e for kw in prod_keywords)]
+        # Simple classification by exact aliases/tokens. Avoid substring checks:
+        # NON_PROD contains PROD but is explicitly non-production.
+        prod_aliases = {"PROD", "PRODUCTION", "PRD", "LIVE", "RELEASE"}
+        non_prod_aliases = {"NON_PROD", "NONPROD", "NON_PRODUCTION", "NONPRODUCTION"}
+
+        def env_tokens(env: str) -> set[str]:
+            return {
+                token
+                for token in re.split(r"[^A-Z0-9]+", env.upper())
+                if token
+            }
+
+        def is_production_env(env: str) -> bool:
+            env_upper = env.upper()
+            normalized = re.sub(r"[^A-Z0-9]+", "_", env_upper).strip("_")
+            if normalized in non_prod_aliases:
+                return False
+            if normalized in prod_aliases:
+                return True
+            return bool(env_tokens(env_upper) & prod_aliases)
+
+        production_envs = [e for e in unique_envs if is_production_env(e)]
         non_production_envs = [e for e in unique_envs if e not in production_envs]
         
         # Order by typical pipeline stages (development → testing → pre-prod → production)
         pipeline_stages = {
             "LOCAL": 1, "DEV": 2, "DEVELOPMENT": 2,
-            "TEST": 3, "TESTING": 3, "QA": 4,
+            "TEST": 3, "TESTING": 3, "QA": 4, "ETE": 4,
             "STAGE": 5, "STAGING": 5, "STG": 5, "UAT": 5, "PERF": 5,
-            "PROD": 6, "PRODUCTION": 6, "LIVE": 6, "RELEASE": 6
+            "NON_PROD": 5.5, "NONPROD": 5.5, "NON_PRODUCTION": 5.5, "NONPRODUCTION": 5.5,
+            "PROD": 6, "PRODUCTION": 6, "PRD": 6, "LIVE": 6, "RELEASE": 6
         }
         
         def get_env_order(env: str) -> int:
             """Get pipeline order for environment."""
             env_upper = env.upper()
-            # Check exact match first
-            if env_upper in pipeline_stages:
-                return pipeline_stages[env_upper]
-            # Check if environment contains any keyword
+            normalized = re.sub(r"[^A-Z0-9]+", "_", env_upper).strip("_")
+            if normalized in pipeline_stages:
+                return pipeline_stages[normalized]
+            tokens = env_tokens(env_upper)
             for keyword, order in pipeline_stages.items():
-                if keyword in env_upper:
+                if keyword in tokens:
                     return order
             # Unknown environments go after testing but before staging
             return 4.5
@@ -468,7 +533,92 @@ class DataProfiler:
             method_used="fuzzy",
             warnings=[]
         )
-    
+
+    # ------------------------------------------------------------------ #
+    # Resolution classification                                            #
+    # ------------------------------------------------------------------ #
+
+    RESOLUTION_KEYWORDS = {
+        "rejected": [
+            "rejected", "won't fix", "wontfix", "wont fix",
+            "cancelled", "canceled", "invalid", "duplicate",
+            "cannot reproduce", "can't reproduce", "not a bug",
+            "by design", "won't do", "wontdo", "out of scope",
+        ],
+        "accepted": [
+            "fixed", "done", "resolved", "completed", "deployed",
+            "released", "closed", "verified",
+        ],
+        "other": [
+            "unresolved", "open", "in progress", "pending",
+        ],
+    }
+
+    def _classify_resolutions(self, resolution_series: pd.Series) -> ResolutionProfile:
+        """Classify resolution values into rejected / accepted / other."""
+        unique_resolutions = resolution_series.dropna().unique().tolist()
+        unique_resolutions = [str(r) for r in unique_resolutions if str(r).strip()]
+
+        if not unique_resolutions:
+            return ResolutionProfile(
+                all_resolutions=[],
+                rejected_resolutions=[],
+                accepted_resolutions=[],
+                other_resolutions=[],
+                confidence=0.0,
+                method_used="none",
+                warnings=["No resolution values found in data"],
+            )
+
+        rejected, accepted, other = [], [], []
+        unclassified = []
+
+        for res in unique_resolutions:
+            res_lower = res.lower().strip()
+            if any(kw in res_lower for kw in self.RESOLUTION_KEYWORDS["rejected"]):
+                rejected.append(res)
+            elif any(kw in res_lower for kw in self.RESOLUTION_KEYWORDS["accepted"]):
+                accepted.append(res)
+            elif any(kw in res_lower for kw in self.RESOLUTION_KEYWORDS["other"]):
+                other.append(res)
+            else:
+                unclassified.append(res)
+                other.append(res)  # default to other when unknown
+
+        warnings = []
+        if unclassified:
+            warnings.append(f"Unclassified resolutions (defaulted to other): {', '.join(unclassified)}")
+
+        confidence = 0.7 if not unclassified else 0.5
+        return ResolutionProfile(
+            all_resolutions=unique_resolutions,
+            rejected_resolutions=rejected,
+            accepted_resolutions=accepted,
+            other_resolutions=other,
+            confidence=confidence,
+            method_used="fuzzy",
+            warnings=warnings,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Generic field-value distribution                                     #
+    # ------------------------------------------------------------------ #
+
+    def _profile_field_values(self, series: pd.Series, field_name: str, top_n: int = 20) -> FieldValueProfile:
+        """Build a simple frequency distribution profile for a categorical field."""
+        total_count = len(series)
+        filled = series.dropna()
+        completeness = len(filled) / total_count if total_count > 0 else 0.0
+        value_counts = filled.astype(str).value_counts()
+        top_values = [(str(v), int(c)) for v, c in value_counts.head(top_n).items()]
+        return FieldValueProfile(
+            field_name=field_name,
+            top_values=top_values,
+            total_count=total_count,
+            unique_count=int(value_counts.shape[0]),
+            completeness=completeness,
+        )
+
     def _analyze_metric_applicability(self, df: pd.DataFrame) -> Tuple[List[str], Dict[str, List[str]]]:
         """Determine which metrics can run on this data."""
         from qa_bugs.metrics import METRICS

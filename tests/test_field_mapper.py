@@ -111,6 +111,104 @@ def test_exact_match():
     assert result.mapping["environment"] == "environment"
 
 
+def test_multiple_environment_columns_select_best_candidate():
+    """Auto-mapping should choose the real env column instead of coalescing all of them."""
+    from qa_bugs.ingest.normalizer import Normalizer
+
+    df = pd.DataFrame({
+        "Key": ["BUG-1", "BUG-2", "BUG-3"],
+        "Created": ["2024-01-01", "2024-01-02", "2024-01-03"],
+        "Status": ["Open", "Closed", "Open"],
+        "Priority": ["High", "Low", "Medium"],
+        "Discovery Environment": ["web", "mobile", "api"],
+        "Environment": ["qa", "prod", "dev"],
+        "Runtime Environment": ["chrome", "firefox", "edge"],
+    })
+
+    mapper = FieldMappingService(llm_service=None)
+    result = mapper.auto_detect_mapping(df)
+
+    assert result.valid, f"Mapping should be valid. Errors: {result.errors}"
+    assert result.mapping["environment"] == "Environment"
+
+    normalized = Normalizer(result.mapping).normalize(df)
+
+    assert normalized["environment"].tolist() == ["QA", "PROD", "DEV"]
+
+
+def test_environment_column_rejected_when_cardinality_is_too_high():
+    """Columns with too many distinct values are unlikely to be environment fields."""
+    row_count = FieldMappingService.MAX_ENV_UNIQUE_VALUES + 1
+    df = pd.DataFrame({
+        "Key": [f"BUG-{i}" for i in range(row_count)],
+        "Created": ["2024-01-01"] * row_count,
+        "Status": ["Open"] * row_count,
+        "Priority": ["High"] * row_count,
+        "Environment Details": [f"unique free text value {i}" for i in range(row_count)],
+    })
+
+    mapper = FieldMappingService(llm_service=None)
+    result = mapper.auto_detect_mapping(df)
+
+    assert result.valid, f"Mapping should remain valid without optional env. Errors: {result.errors}"
+    assert "environment" not in result.mapping
+
+
+def test_resolution_selects_outcome_column_not_resolution_date():
+    """Resolution outcome should be distinct from resolved_at date fields."""
+    df = pd.DataFrame({
+        "Key": ["BUG-1", "BUG-2", "BUG-3"],
+        "Created": ["2024-01-01", "2024-01-02", "2024-01-03"],
+        "Status": ["Done", "Done", "Done"],
+        "Priority": ["High", "Low", "Medium"],
+        "resolutiondate": ["2024-01-04", "2024-01-05", "2024-01-06"],
+        "Resolution": ["Fixed", "Won't Fix", "Duplicate"],
+    })
+
+    mapper = FieldMappingService(llm_service=None)
+    result = mapper.auto_detect_mapping(df)
+
+    assert result.valid, f"Mapping should be valid. Errors: {result.errors}"
+    assert result.mapping["resolved_at"] == "resolutiondate"
+    assert result.mapping["resolution"] == "Resolution"
+
+
+def test_resolution_date_is_not_mapped_as_resolution_outcome():
+    """A date-like resolution column should not become the resolution outcome field."""
+    df = pd.DataFrame({
+        "Key": ["BUG-1", "BUG-2"],
+        "Created": ["2024-01-01", "2024-01-02"],
+        "Status": ["Done", "Done"],
+        "Priority": ["High", "Low"],
+        "Resolution Date": ["2024-01-04", "2024-01-05"],
+    })
+
+    mapper = FieldMappingService(llm_service=None)
+    result = mapper.auto_detect_mapping(df)
+
+    assert result.valid, f"Mapping should be valid. Errors: {result.errors}"
+    assert result.mapping["resolved_at"] == "Resolution Date"
+    assert "resolution" not in result.mapping
+
+
+def test_resolution_column_rejected_when_cardinality_is_too_high():
+    """High-cardinality text columns are unlikely to be resolution outcomes."""
+    row_count = FieldMappingService.MAX_RESOLUTION_UNIQUE_VALUES + 1
+    df = pd.DataFrame({
+        "Key": [f"BUG-{i}" for i in range(row_count)],
+        "Created": ["2024-01-01"] * row_count,
+        "Status": ["Done"] * row_count,
+        "Priority": ["High"] * row_count,
+        "Resolution Comment": [f"unique closure explanation {i}" for i in range(row_count)],
+    })
+
+    mapper = FieldMappingService(llm_service=None)
+    result = mapper.auto_detect_mapping(df)
+
+    assert result.valid, f"Mapping should remain valid without optional resolution. Errors: {result.errors}"
+    assert "resolution" not in result.mapping
+
+
 def test_case_insensitive_matching():
     """Test that fuzzy matching handles case differences."""
     df = pd.DataFrame({

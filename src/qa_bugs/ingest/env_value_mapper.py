@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 import logging
 import re
 import pandas as pd
@@ -19,6 +19,10 @@ class EnvironmentMappingResult:
     warnings: List[str]
     unique_values: List[str]
     method_used: str  # "llm", "fuzzy", or "passthrough"
+    # Debug info
+    llm_prompt: Optional[str] = None
+    llm_raw_response: Optional[str] = None
+    llm_error: Optional[str] = None
 
 
 class EnvironmentValueMapper:
@@ -26,7 +30,7 @@ class EnvironmentValueMapper:
     Service for auto-detecting and mapping environment values to standard categories.
     
     Analyzes unique environment values in data and maps them to standard categories:
-    - LOCAL, DEV, QA, STAGE, UAT, PERF, PROD
+    - LOCAL, DEV, QA, STAGE, UAT, PERF, PROD, NON_PROD
     
     Supports:
     - LLM-based intelligent classification
@@ -35,17 +39,34 @@ class EnvironmentValueMapper:
     """
     
     # Standard environment categories in typical pipeline order
-    DEFAULT_CATEGORIES = ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"]
+    DEFAULT_CATEGORIES = ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD", "NON_PROD"]
     
-    # Fuzzy matching keywords for each category
-    CATEGORY_KEYWORDS = {
-        "LOCAL": ["local", "localhost", "dev-local", "development-local"],
-        "DEV": ["dev", "develop", "development", "int", "integration", "dev-"],
-        "QA": ["qa", "test", "testing", "tst", "quality", "verification"],
-        "STAGE": ["stage", "staging", "stg", "pre-prod", "preprod"],
-        "UAT": ["uat", "acceptance", "user-acceptance", "pre-production"],
-        "PERF": ["perf", "performance", "load", "stress"],
-        "PROD": ["prod", "production", "prd", "live", "release"],
+    # Conservative aliases. Values not matching these exact aliases are preserved.
+    EXACT_ALIASES = {
+        "local": "LOCAL",
+        "localhost": "LOCAL",
+        "dev": "DEV",
+        "develop": "DEV",
+        "development": "DEV",
+        "qa": "QA",
+        "test": "QA",
+        "testing": "QA",
+        "tst": "QA",
+        "stage": "STAGE",
+        "staging": "STAGE",
+        "stg": "STAGE",
+        "uat": "UAT",
+        "acceptance": "UAT",
+        "perf": "PERF",
+        "performance": "PERF",
+        "prod": "PROD",
+        "production": "PROD",
+        "prd": "PROD",
+        "live": "PROD",
+        "non_prod": "NON_PROD",
+        "nonprod": "NON_PROD",
+        "non_production": "NON_PROD",
+        "nonproduction": "NON_PROD",
     }
     
     def __init__(self, llm_service: Optional["LLMService"] = None, target_categories: Optional[List[str]] = None):
@@ -62,6 +83,8 @@ class EnvironmentValueMapper:
     
     # Minimum fill rate below which environment mapping is skipped (sparse/unreliable field)
     MIN_FILL_RATE = 0.05
+    # Maximum number of unique valid-looking values before treating field as free-text
+    MAX_UNIQUE_ENV_VALUES = 10
 
     def auto_map_values(
         self,
@@ -142,6 +165,25 @@ class EnvironmentValueMapper:
                 method_used="passthrough"
             )
 
+        # High-cardinality guard: if too many distinct valid-looking values remain, the
+        # Environment field is likely free-text (not a structured env picker) — skip mapping.
+        if len(valid_values) > self.MAX_UNIQUE_ENV_VALUES:
+            msg = (
+                f"Environment field has {len(valid_values)} unique values after filtering "
+                f"(threshold: {self.MAX_UNIQUE_ENV_VALUES}). "
+                "The field appears to be free-text rather than a structured environment selector. "
+                "Skipping environment mapping — values kept as-is."
+            )
+            logger.warning(msg)
+            return EnvironmentMappingResult(
+                success=True,
+                value_mapping={},
+                errors=[],
+                warnings=[msg],
+                unique_values=unique_values,
+                method_used="passthrough"
+            )
+
         # Try LLM-based mapping first (only on valid values)
         if self.llm_enabled and self.llm_service:
             logger.info("LLM service enabled, attempting LLM-based environment value mapping")
@@ -168,11 +210,31 @@ class EnvironmentValueMapper:
         - Multi-line values (contain \\n or \\r)
         - Values longer than 60 characters
         - Version/device patterns like "iOS 571 Android 541" (word+digits repeated)
+        - URLs (contain http:// or https://)
+        - UUIDs (hex-dash pattern)
+        - Values containing colons (e.g. "ENV: TAC ML", image markup)
+        - Values containing 3+ comma-separated tokens (free-text lists)
+        - Values containing image/markup syntax (!image- or |width=)
         """
         s = str(value).strip()
         if "\n" in s or "\r" in s:
             return False
         if len(s) > 60:
+            return False
+        # Reject URLs
+        if re.search(r'https?://', s, re.IGNORECASE):
+            return False
+        # Reject UUIDs (e.g. "8f7644ba-6951-4ce0-892e-9f366b0c24b2")
+        if re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', s, re.IGNORECASE):
+            return False
+        # Reject values containing colons ("ENV: TAC ML", image markup dimensions)
+        if ":" in s:
+            return False
+        # Reject image/markup syntax
+        if re.search(r'!image-|\|width=|\|height=|alt="', s, re.IGNORECASE):
+            return False
+        # Reject free-text lists: 3 or more comma-separated tokens
+        if s.count(",") >= 2:
             return False
         # Reject patterns like "Word 123 Word 456" — looks like device/version info
         if re.search(r'\b[A-Za-z]+\s+\d+\s+[A-Za-z]+\s+\d+', s):
@@ -206,7 +268,10 @@ class EnvironmentValueMapper:
             
             if not ok:
                 logger.warning(f"LLM call failed: {error}. Falling back to fuzzy matching")
-                return self._fuzzy_map_values(unique_values, allow_passthrough, llm_error=error)
+                result = self._fuzzy_map_values(unique_values, allow_passthrough, llm_error=error)
+                result.llm_prompt = prompt
+                result.llm_error = error
+                return result
             
             logger.info("LLM call successful, parsing response")
             logger.debug(f"LLM response:\n{response_text}")
@@ -217,11 +282,17 @@ class EnvironmentValueMapper:
             logger.debug(f"LLM mapping: {value_mapping}")
             
             # Validate and build result
-            return self._build_result(value_mapping, unique_values, allow_passthrough, "llm")
+            result = self._build_result(value_mapping, unique_values, allow_passthrough, "llm")
+            result.llm_prompt = prompt
+            result.llm_raw_response = response_text
+            return result
             
         except Exception as e:
             logger.error(f"Exception during LLM environment mapping: {e}. Falling back to fuzzy matching", exc_info=True)
-            return self._fuzzy_map_values(unique_values, allow_passthrough, llm_error=str(e))
+            result = self._fuzzy_map_values(unique_values, allow_passthrough, llm_error=str(e))
+            result.llm_prompt = prompt
+            result.llm_error = str(e)
+            return result
     
     def _fuzzy_map_values(
         self,
@@ -238,35 +309,21 @@ class EnvironmentValueMapper:
         value_mapping = {}
         
         for value in unique_values:
-            value_lower = str(value).lower().strip()
-            matched = False
-            
-            # Try exact match with target categories first
-            if value.upper() in self.target_categories:
-                value_mapping[value] = value.upper()
-                matched = True
-                logger.debug(f"Exact match: {value} -> {value.upper()}")
+            mapped_value, confidence, reason = self._classify_env_value(value)
+            if mapped_value in self.target_categories:
+                value_mapping[value] = mapped_value
+                logger.debug(
+                    "Environment classification: %s -> %s (confidence=%.2f, reason=%s)",
+                    value, mapped_value, confidence, reason
+                )
                 continue
-            
-            # Try keyword matching
-            for category, keywords in self.CATEGORY_KEYWORDS.items():
-                if category not in self.target_categories:
-                    continue
-                    
-                for keyword in keywords:
-                    if keyword in value_lower:
-                        value_mapping[value] = category
-                        matched = True
-                        logger.debug(f"Keyword match: {value} -> {category} (keyword: {keyword})")
-                        break
-                
-                if matched:
-                    break
-            
-            # If no match and passthrough allowed, keep original (uppercased)
-            if not matched and allow_passthrough:
-                value_mapping[value] = value.upper()
-                logger.debug(f"No match, passthrough: {value} -> {value.upper()}")
+
+            if allow_passthrough:
+                value_mapping[value] = self._preserve_env_value(value)
+                logger.debug(
+                    "Environment passthrough: %s -> %s (confidence=%.2f, reason=%s)",
+                    value, value_mapping[value], confidence, reason
+                )
         
         result = self._build_result(value_mapping, unique_values, allow_passthrough, "fuzzy")
         
@@ -275,6 +332,30 @@ class EnvironmentValueMapper:
             result.warnings.insert(0, f"LLM mapping failed ({llm_error}), used fuzzy keyword matching")
         
         return result
+
+    @staticmethod
+    def _normalize_env_value(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", str(value).lower().strip()).strip("_")
+
+    @staticmethod
+    def _preserve_env_value(value: str) -> str:
+        return str(value).strip().upper()
+
+    def _classify_env_value(self, value: str) -> Tuple[str, float, str]:
+        normalized_value = self._normalize_env_value(value)
+
+        if not normalized_value:
+            return self._preserve_env_value(value), 0.0, "empty value"
+
+        exact_category = normalized_value.upper()
+        if exact_category in self.target_categories:
+            return exact_category, 1.0, "already a target category"
+
+        alias_category = self.EXACT_ALIASES.get(normalized_value)
+        if alias_category:
+            return alias_category, 1.0, "exact alias"
+
+        return self._preserve_env_value(value), 0.0, "preserved original value"
     
     def _build_result(
         self,
@@ -318,9 +399,24 @@ class EnvironmentValueMapper:
             method_used=method
         )
     
+    @staticmethod
+    def _sanitize_for_prompt(value: str) -> str:
+        """Remove/replace characters that cause LLM XML parsers to fail (e.g. cp1252 smart quotes)."""
+        # Replace Windows-1252 special chars (U+0080–U+009F) with ASCII equivalents
+        replacements = {
+            "\u0091": "'", "\u0092": "'", "\u0093": '"', "\u0094": '"',
+            "\u0096": "-", "\u0097": "-", "\u0085": "...",
+        }
+        for bad, good in replacements.items():
+            value = value.replace(bad, good)
+        # Strip remaining control characters (U+0000–U+001F and U+007F–U+009F)
+        value = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', value)
+        return value
+
     def _build_mapping_prompt(self, unique_values: List[str]) -> str:
         """Build prompt for LLM environment value mapping."""
-        values_str = "\n".join([f"  - {v}" for v in unique_values])
+        sanitized = [self._sanitize_for_prompt(v) for v in unique_values]
+        values_str = "\n".join([f"  - {v}" for v in sanitized])
         categories_str = ", ".join(self.target_categories)
         
         prompt_template = """You are a DevOps environment classification assistant. Given a list of environment values from a bug tracking system, map each value to a standard environment category.
@@ -336,12 +432,14 @@ class EnvironmentValueMapper:
 5. QA/TEST: Quality assurance, testing, verification environments
 6. DEV: Development, integration environments
 7. LOCAL: Local development, localhost
+8. NON_PROD: Broad non-production labels that do not identify a specific stage
 
 **Analysis Guidelines:**
 - Look for keywords in environment names (e.g., "prod" → PROD, "testing" → QA)
 - Consider common naming patterns (e.g., "app-staging" → STAGE, "dev-server" → DEV)
-- If a value clearly matches a category, map it
-- If uncertain, use the closest logical match
+- If a value clearly matches a specific category, map it
+- If a value is broad like "Non-Prod" or "Non-Production", map it to NON_PROD, not DEV
+- If uncertain, keep the original value uppercased instead of forcing it into DEV/QA/PROD
 - If value is already a standard category name, keep it
 - Be case-insensitive in analysis
 
@@ -378,21 +476,28 @@ Your response (YAML only):"""
     def _parse_llm_response(self, response: str) -> Dict[str, str]:
         """Parse YAML mapping from LLM response."""
         import yaml
-        
+
         # Extract YAML from potential markdown fences
         if "```yaml" in response:
             response = response.split("```yaml")[1].split("```")[0].strip()
         elif "```" in response:
             response = response.split("```")[1].split("```")[0].strip()
-        
+
+        # Sanitize the response before YAML parsing — LLM may echo back values
+        # containing control characters that break the YAML scanner.
+        response = self._sanitize_for_prompt(response)
+
         # Parse YAML
         data = yaml.safe_load(response)
-        
+
+        if not isinstance(data, dict):
+            raise ValueError(f"LLM response did not parse to a dict: {type(data)}")
+
         if "value_mapping" in data:
-            return data["value_mapping"]
+            return {str(k): str(v) for k, v in data["value_mapping"].items()}
         else:
             # If LLM returned just the mapping dict without wrapper
-            return data
+            return {str(k): str(v) for k, v in data.items()}
     
     def format_result_message(self, result: EnvironmentMappingResult) -> str:
         """Format mapping result as user-friendly message."""

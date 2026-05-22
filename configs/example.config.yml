@@ -9,6 +9,7 @@ fields_mapping:
   created_at: "Created"
   resolved_at: "resolutiondate"
   status: "Status"
+  resolution: "Resolution"  # Optional: JIRA resolution field (e.g. Fixed, Won't Fix, Cancelled)
   priority: "Priority"
   fix_version: "FixVersions"
   environment: "customfield_12200"
@@ -33,7 +34,7 @@ auto_mapping:
 auto_env_mapping:
   enabled: false  # Set to true to enable auto-detection
   allow_passthrough: true  # If true, unmapped values stay as-is; if false, they cause errors
-  target_categories: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD"]
+  target_categories: ["LOCAL", "DEV", "QA", "STAGE", "UAT", "PERF", "PROD", "NON_PROD"]
   # Usage:
   #   CLI: --auto-map-env flag overrides this setting
   #   UI: Toggle "Auto-map environment values" in sidebar
@@ -90,6 +91,9 @@ metrics:
       intended_env: ["QA"]  # Standard category after auto-mapping (Testing → QA)
       leak_envs: ["PROD"]  # Standard category after auto-mapping (Production → PROD)
     rejection_rate:
+      # rejected_resolutions: used when a 'resolution' column is present (resolution-first logic)
+      # rejected_statuses: fallback when only 'status' column is available
+      rejected_resolutions: ["Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX", "Duplicate", "Invalid", "Cannot Reproduce"]
       rejected_statuses: ["Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX"]
     # defects_by_env_priority:
     #   # No env_order needed - environments are discovered from data

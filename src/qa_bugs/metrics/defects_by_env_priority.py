@@ -1,4 +1,5 @@
 from typing import Any, Dict
+import re
 import pandas as pd
 import plotly.express as px
 from qa_bugs.metrics.base import Metric, MetricResult
@@ -101,18 +102,7 @@ class DefectsByEnvPriority(Metric):
             tbl["environment"] = pd.Categorical(tbl["environment"], categories=category_order, ordered=True)
             tbl = tbl.sort_values("environment")
         
-        # Priority color scheme (urgent to low urgency)
-        priority_colors = {
-            "Critical": "#c0392b",    # Dark red
-            "Blocker": "#c0392b",     # Dark red
-            "High": "#e74c3c",        # Red
-            "Medium": "#f39c12",      # Orange
-            "Low": "#3498db",         # Blue
-            "Minor": "#3498db",       # Blue
-            "Trivial": "#95a5a6",     # Gray
-            "TBD": "#7f8c8d",         # Dark gray
-            "Undefined": "#bdc3c7",   # Light gray
-        }
+        priority_colors = self._build_priority_color_map(tbl["priority"].dropna().astype(str).unique())
 
         fig = px.bar(
             tbl,
@@ -126,3 +116,47 @@ class DefectsByEnvPriority(Metric):
         )
         fig.update_layout(margin=dict(l=10, r=10, t=40, b=50), height=350)
         return fig.to_html(include_plotlyjs=False, full_html=False)
+
+    @classmethod
+    def _build_priority_color_map(cls, priorities) -> dict[str, str]:
+        fallback_palette = [
+            "#5470C6", "#91CC75", "#FAC858", "#73C0DE", "#3BA272",
+            "#FC8452", "#9A60B4", "#EA7CCC", "#2F5597", "#70AD47",
+        ]
+        color_map = {}
+        fallback_idx = 0
+
+        for priority in sorted(str(p) for p in priorities):
+            semantic_color = cls._semantic_priority_color(priority)
+            if semantic_color:
+                color_map[priority] = semantic_color
+            else:
+                color_map[priority] = fallback_palette[fallback_idx % len(fallback_palette)]
+                fallback_idx += 1
+
+        return color_map
+
+    @staticmethod
+    def _semantic_priority_color(priority: str) -> str | None:
+        tokens = {
+            token
+            for token in re.split(r"[^a-z0-9]+", priority.lower())
+            if token
+        }
+        normalized = " ".join(tokens)
+
+        if "showstopper" in tokens or "blocker" in tokens:
+            return "#7f1d1d"
+        if "critical" in tokens or "p0" in tokens:
+            return "#c0392b"
+        if "major" in tokens or "high" in tokens or "p1" in tokens:
+            return "#e67e22"
+        if "average" in tokens or "medium" in tokens or "normal" in tokens or "p2" in tokens:
+            return "#f39c12"
+        if "minor" in tokens or "low" in tokens or "p3" in tokens:
+            return "#3498db"
+        if "trivial" in tokens or "lowest" in tokens or "p4" in tokens:
+            return "#95a5a6"
+        if normalized in {"tbd", "undefined", "unknown"}:
+            return "#7f8c8d"
+        return None

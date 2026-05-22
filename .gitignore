@@ -5,6 +5,9 @@ __pycache__/
 **/__pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+dist/
+build/
 
 # Local environment variables (contains secrets)
 .env

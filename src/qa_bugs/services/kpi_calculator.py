@@ -201,6 +201,6 @@ def _extract_rejection_kpis(metric_result, kpis: SummaryKPIs) -> None:
         rejected_val = rej_row.get("rejected", 0)
         total_val = rej_row.get("total", None)
         kpis.rejected_count = int(rejected_val) if isinstance(rejected_val, (int, float)) else None
-        if kpis.total_defects is None and isinstance(total_val, (int, float)):
-            kpis.total_defects = int(total_val)
+        # rejection_rate operates on unfiltered data, so its total should not override
+        # total_defects (which reflects the filtered dataset used by lifecycle metrics).
         kpis.rejection_applicable = bool(int(total_val) > 0) if isinstance(total_val, (int, float)) else None

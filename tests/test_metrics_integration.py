@@ -324,7 +324,7 @@ def test_multiple_metrics_integration(base_data):
     
     # Verify KPIs calculated correctly
     assert result.summary_kpis is not None
-    assert result.summary_kpis.total_defects == 5  # Filtered count
+    assert result.summary_kpis.total_defects == 7  # Raw input count (set by analysis_service)
     assert result.summary_kpis.rejection_pct is not None
     assert result.summary_kpis.rejected_count == 3
 

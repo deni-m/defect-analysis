@@ -54,7 +54,8 @@ def test_rejection_rate_counts_excluded_statuses():
     assert rejection_summary["rejection_percent"] == 50.0, f"Should be 50% rejection rate, got {rejection_summary['rejection_percent']}"
     
     # Verify KPIs
-    assert result.summary_kpis.total_defects == 3, "KPIs should reflect filtered count (3 bugs)"
+    # total_defects is set to the raw input row count by analysis_service (before exclusions)
+    assert result.summary_kpis.total_defects == 4, "KPIs total_defects reflects raw input count (4 bugs before exclusions)"
     assert result.summary_kpis.rejection_pct == 50.0, "KPI rejection rate should be 50%"
     assert result.summary_kpis.rejected_count == 2, "KPI should show 2 rejected bugs"
     

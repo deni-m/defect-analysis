@@ -1,11 +1,11 @@
 import pandas as pd
 import re
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 class Normalizer:
     CANON = {
         "key", "created_at", "resolved_at",
-        "status", "priority", "fix_version",
+        "status", "resolution", "priority", "fix_version",
         "environment", "category"
     }
 
@@ -32,25 +32,41 @@ class Normalizer:
             return s
         normalized_cols = {_norm_label(c): c for c in d.columns}
 
-        out = {}
-        for canon, desired in self.mapping.items():
+        def _resolve_column(desired: Any) -> Optional[str]:
             # direct match first
             if desired in d.columns:
-                out[canon] = d[desired]
-                continue
+                return desired
             # try normalized match
-            norm_desired = _norm_label(desired)
+            norm_desired = _norm_label(str(desired))
             if norm_desired in normalized_cols:
-                out[canon] = d[normalized_cols[norm_desired]]
-                continue
+                return normalized_cols[norm_desired]
             # fallback: attempt partial startswith among normalized columns
-            picked = None
             for nrm, orig in normalized_cols.items():
                 if nrm.startswith(norm_desired):
-                    picked = orig
-                    break
-            if picked:
-                out[canon] = d[picked]
+                    return orig
+            return None
+
+        def _coalesce_columns(columns: list[str]) -> pd.Series:
+            result = pd.Series(pd.NA, index=d.index, dtype="object")
+            for column in columns:
+                values = d[column]
+                if values.dtype == "object" or pd.api.types.is_string_dtype(values):
+                    values = values.replace(r"^\s*$", pd.NA, regex=True)
+                result = result.combine_first(values)
+            return result
+
+        out = {}
+        for canon, desired in self.mapping.items():
+            desired_columns = desired if isinstance(desired, list) else [desired]
+            picked_columns = [
+                picked
+                for item in desired_columns
+                if (picked := _resolve_column(item)) is not None
+            ]
+            if len(picked_columns) == 1:
+                out[canon] = d[picked_columns[0]]
+            elif picked_columns:
+                out[canon] = _coalesce_columns(picked_columns)
             else:
                 out[canon] = None
         out_df = pd.DataFrame(out)
@@ -65,7 +81,7 @@ class Normalizer:
             if col in out_df.columns:
                 out_df[col] = pd.to_datetime(out_df[col], errors="coerce")
 
-        for col in ("status", "priority", "fix_version", "environment", "key"):
+        for col in ("status", "resolution", "priority", "fix_version", "environment", "key"):
             if col in out_df.columns:
                 out_df[col] = out_df[col].astype("string").fillna(pd.NA)
 

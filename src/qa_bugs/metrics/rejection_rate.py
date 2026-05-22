@@ -6,11 +6,23 @@ class RejectionRate(Metric):
     id = "rejection_rate"
     display_name = "Rejection Rate"
 
-    def compute(self, df: pd.DataFrame, cfg: dict) -> MetricResult:
+    # Default rejected resolution/status values (case-insensitive)
+    DEFAULT_REJECTED_RESOLUTIONS = [
+        "Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX",
+        "Duplicate", "Invalid", "Cannot Reproduce", "Won't Do",
+    ]
+    DEFAULT_REJECTED_STATUSES = [
+        "Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX",
+    ]
+
+    def compute(self, df: pd.DataFrame, cfg: dict, profile=None) -> MetricResult:
         d = df.copy()
-        status_col = "status" if "status" in d.columns else None
-        if status_col is None or d.empty:
-            reason = "no status column found" if status_col is None else "empty dataset"
+
+        has_status = "status" in d.columns
+        has_resolution = "resolution" in d.columns
+
+        if not has_status and not has_resolution or d.empty:
+            reason = "no status column found" if not d.empty else "empty dataset"
             return MetricResult(
                 self.id,
                 tables={"rejection_summary": pd.DataFrame([{"rejected": 0, "total": 0, "rejection_percent": 0.0}])},
@@ -18,20 +30,31 @@ class RejectionRate(Metric):
                 quality_notes=[f"Metric could not be calculated: {reason}."],
             )
 
-        # Pull config-driven rejected statuses.
-        # Path: cfg['metrics']['params']['rejection_rate']['rejected_statuses']
         metrics_cfg = cfg.get("metrics", {}).get("params", {})
         param_cfg = metrics_cfg.get(self.id, {}) if isinstance(metrics_cfg, dict) else {}
-        raw_statuses = param_cfg.get("rejected_statuses", [])
-        if not raw_statuses:
-            # Fallback defaults (kept for backward compatibility / missing config)
-            raw_statuses = ["Rejected", "Canceled", "Cancelled", "Won't Fix", "WONTFIX"]
-        # Normalize for case-insensitive matching
-        rejected_statuses_lower = {str(s).lower().strip() for s in raw_statuses if s is not None}
 
-        d[status_col] = d[status_col].astype("string")
+        # Resolution-first: if resolution column exists, use it exclusively.
+        # Otherwise fall back to status column.
+        if has_resolution:
+            eval_col = "resolution"
+            raw_values = (
+                param_cfg.get("rejected_resolutions", [])
+                or self._profile_rejected_resolutions(profile)
+                or self.DEFAULT_REJECTED_RESOLUTIONS
+            )
+        else:
+            eval_col = "status"
+            raw_values = (
+                param_cfg.get("rejected_statuses", [])
+                or param_cfg.get("rejected_resolutions", [])
+                or self.DEFAULT_REJECTED_STATUSES
+            )
+
+        rejected_lower = {str(s).lower().strip() for s in raw_values if s is not None}
+
+        d[eval_col] = d[eval_col].astype("string")
         total = int(len(d))
-        rejected_mask = d[status_col].str.lower().isin(rejected_statuses_lower)
+        rejected_mask = d[eval_col].str.lower().str.strip().isin(rejected_lower)
         rejected_count = int(rejected_mask.sum())
         pct = float(rejected_count / total * 100.0) if total > 0 else 0.0
         summary_row = {"rejected": rejected_count, "total": total, "rejection_percent": round(pct, 2)}
@@ -40,6 +63,12 @@ class RejectionRate(Metric):
             tables={"rejection_summary": pd.DataFrame([summary_row])},
             summary=f"Rejected={rejected_count} ({pct:.1f}%)",
         )
+
+    @staticmethod
+    def _profile_rejected_resolutions(profile) -> list:
+        if not profile or not getattr(profile, "resolution_profile", None):
+            return []
+        return getattr(profile.resolution_profile, "rejected_resolutions", []) or []
 
     def build_figure(self, result: MetricResult) -> str | None:
         """Create a simple rejection rate KPI display."""
