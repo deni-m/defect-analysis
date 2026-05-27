@@ -56,3 +56,21 @@ def test_defects_by_priority_chart_labels_include_count_and_percent():
 
     assert "2 (66.67%)" in html
     assert "1 (33.33%)" in html
+
+
+def test_defects_by_priority_uses_prefixed_priority_order_without_profile():
+    df = pd.DataFrame([
+        {"priority": "2-Major"},
+        {"priority": "2-Major"},
+        {"priority": "4-Minor"},
+        {"priority": "1-Critical"},
+        {"priority": "0-Showstopper"},
+        {"priority": "3-Average"},
+    ])
+
+    result = DefectsByPriority().compute(df, {})
+    priorities = result.tables["priority_counts"]["priority"].astype(str).tolist()
+    html = DefectsByPriority().build_figure(result)
+
+    assert priorities == ["0-Showstopper", "1-Critical", "2-Major", "3-Average", "4-Minor"]
+    assert '"categoryarray":["0-Showstopper","1-Critical","2-Major","3-Average","4-Minor"]' in html

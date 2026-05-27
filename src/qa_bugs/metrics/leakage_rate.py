@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.express as px
 
 from .base import Metric, MetricResult
+from .priority_ordering import apply_priority_order, normalize_priority
 
 
 class LeakageRate(Metric):
@@ -172,6 +173,7 @@ class LeakageRate(Metric):
 
         # 7) Priority breakdown (optional)
         if total > 0 and "priority" in d.columns:
+            d["priority"] = d["priority"].map(normalize_priority)
             by_priority = (
                 d.groupby("priority", dropna=False)
                 .agg(total=("environment", "size"), leaked=("leaked", "sum"))
@@ -183,13 +185,7 @@ class LeakageRate(Metric):
                     axis=1,
                 )
 
-                # Apply priority ordering from profile if available
-                if profile is not None and profile.priority_profile and profile.priority_profile.severity_order:
-                    order = profile.priority_profile.severity_order
-                    by_priority["priority"] = pd.Categorical(
-                        by_priority["priority"], categories=order, ordered=True
-                    )
-                    by_priority = by_priority.sort_values("priority")
+                by_priority, priority_order = apply_priority_order(by_priority, profile=profile)
 
                 tables["leakage_by_priority"] = by_priority
 
@@ -198,6 +194,7 @@ class LeakageRate(Metric):
                     x="priority",
                     y="leakage_percent",
                     title="Leakage % by Priority",
+                    category_orders={"priority": priority_order},
                     color_discrete_sequence=["#5470C6"],  # Blue color
                 )
                 # Show percentage and absolute number and total atop each bar
@@ -301,12 +298,14 @@ class LeakageRate(Metric):
                 return kpi_html if kpi_html else None
             plot_df = by_priority.copy()
             if "priority" in plot_df.columns:
-                plot_df["priority"] = plot_df["priority"].astype(object).fillna("TBD")
+                plot_df["priority"] = plot_df["priority"].map(normalize_priority)
+            plot_df, priority_order = apply_priority_order(plot_df)
             fig = px.bar(
                 plot_df,
                 x="priority",
                 y=y_col,
                 title="Leakage % by Priority",
+                category_orders={"priority": priority_order},
                 color_discrete_sequence=["#5470C6"]  # Blue color
             )
             fig.update_layout(margin=dict(t=50, b=50), height=350)

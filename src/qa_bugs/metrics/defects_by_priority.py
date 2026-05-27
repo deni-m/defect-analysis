@@ -3,6 +3,7 @@ import plotly.express as px
 
 from qa_bugs.metrics.base import Metric, MetricResult
 from qa_bugs.metrics.defects_by_env_priority import DefectsByEnvPriority
+from qa_bugs.metrics.priority_ordering import apply_priority_order, normalize_priority
 
 
 class DefectsByPriority(Metric):
@@ -19,8 +20,7 @@ class DefectsByPriority(Metric):
             )
 
         d = df.copy()
-        d["priority"] = d["priority"].astype("string").fillna("TBD").str.strip()
-        d.loc[d["priority"].eq(""), "priority"] = "TBD"
+        d["priority"] = d["priority"].map(normalize_priority)
 
         total = int(len(d))
         tbl = (
@@ -30,14 +30,7 @@ class DefectsByPriority(Metric):
         )
         tbl["percent"] = tbl["count"].apply(lambda count: round(count / total * 100.0, 2) if total else 0.0)
 
-        if profile is not None and profile.priority_profile and profile.priority_profile.severity_order:
-            severity_order = [p for p in profile.priority_profile.severity_order if p in set(tbl["priority"])]
-            remaining = [p for p in tbl["priority"].tolist() if p not in severity_order]
-            priority_order = severity_order + sorted(remaining)
-            tbl["priority"] = pd.Categorical(tbl["priority"], categories=priority_order, ordered=True)
-            tbl = tbl.sort_values("priority")
-        else:
-            tbl = tbl.sort_values(["count", "priority"], ascending=[False, True])
+        tbl, _ = apply_priority_order(tbl, profile=profile)
 
         summary = f"Defects grouped by priority. Total: {total}"
         return MetricResult(
@@ -66,6 +59,7 @@ class DefectsByPriority(Metric):
             color="priority",
             text="label",
             title="Defects by Priority",
+            category_orders={"priority": plot_tbl["priority"].tolist()},
             color_discrete_map=priority_colors,
         )
         fig.update_traces(textposition="outside", cliponaxis=False)

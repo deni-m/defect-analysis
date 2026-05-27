@@ -78,6 +78,7 @@ metrics:
     - leakage_rate
     - defects_by_priority
     - defects_by_env_priority
+    - defects_by_status_environment
     - cumulative_open_closed
     - status_by_severity
     - defect_age

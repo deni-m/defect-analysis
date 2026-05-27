@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 
 from .base import Metric, MetricResult
+from .priority_ordering import normalize_priority, ordered_priorities
 
 
 class StatusBySeverity(Metric):
@@ -33,7 +34,7 @@ class StatusBySeverity(Metric):
         d = df.copy()
         # Normalize columns if present
         if "priority" in d.columns:
-            d["priority"] = d["priority"].astype("string").fillna("TBD")
+            d["priority"] = d["priority"].map(normalize_priority)
         else:
             d["priority"] = "TBD"
         if "status" in d.columns:
@@ -59,15 +60,9 @@ class StatusBySeverity(Metric):
         totals = pivot.sum(axis=1)
         pivot = pivot.loc[totals.sort_values(ascending=False).index]
 
-        # Build stacked bar chart data frame: use profile severity_order when available, else sort by total
+        # Build stacked bar chart data frame with consistent priority ordering.
         existing_priorities = pivot.index.tolist()
-        if profile is not None and profile.priority_profile and profile.priority_profile.severity_order:
-            severity_order = profile.priority_profile.severity_order
-            priority_order = [p for p in severity_order if p in existing_priorities]
-            # Append any priorities not in the profile order at the end
-            priority_order += [p for p in existing_priorities if p not in priority_order]
-        else:
-            priority_order = existing_priorities
+        priority_order = ordered_priorities(existing_priorities, profile=profile)
         # To keep consistent color ordering, maintain alphabetical status ordering
         status_order = sorted(pivot.columns.tolist())
         long_df = summary.copy()
@@ -97,6 +92,7 @@ class StatusBySeverity(Metric):
             color="status",
             title="Status Distribution by Severity (Priority) — Relative %",
             text="label",
+            category_orders={"priority": priority_order},
             color_discrete_map=status_colors,
         )
         # Legend positioning: place horizontally below the chart, centered.

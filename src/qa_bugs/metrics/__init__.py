@@ -6,6 +6,7 @@ from .status_by_severity import StatusBySeverity
 from .rejection_rate import RejectionRate
 from .defects_by_env_priority import DefectsByEnvPriority
 from .defects_by_priority import DefectsByPriority
+from .defects_by_status_environment import DefectsByStatusEnvironment
 from .root_cause_distribution import RootCauseDistribution
 
 METRICS = {
@@ -17,5 +18,6 @@ METRICS = {
     "rejection_rate": RejectionRate,
     "defects_by_env_priority": DefectsByEnvPriority,
     "defects_by_priority": DefectsByPriority,
+    "defects_by_status_environment": DefectsByStatusEnvironment,
     "root_cause_distribution": RootCauseDistribution,
 }

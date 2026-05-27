@@ -81,6 +81,7 @@ Every metric **must**:
 
 ## Conventions
 
+- Defect tracking: when asked to fix a bug/defect, first add an entry to `bugs.md` with a very short description, then make the code fix. Use `bugs.md` as the lightweight defect registry.
 - Canonical field names: `key`, `created_at`, `resolved_at`, `status`, `priority`, `environment`, `fix_version`, `category`
 - Timestamps coerced with `pd.to_datetime(..., errors='coerce')` — timezone handling is intentional
 - Environment values are auto-uppercased by Normalizer

@@ -348,6 +348,11 @@ class AnalysisService:
                 "highly_recommended": [],
                 "impact_without": ""
             },
+            "defects_by_status_environment": {
+                "required": ["environment", "status"],
+                "highly_recommended": [],
+                "impact_without": ""
+            },
             "defects_by_priority": {
                 "required": ["priority"],
                 "highly_recommended": [],

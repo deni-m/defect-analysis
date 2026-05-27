@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import plotly.express as px
 from qa_bugs.metrics.base import Metric, MetricResult
+from qa_bugs.metrics.priority_ordering import normalize_priority, ordered_priorities
 
 class DefectsByEnvPriority(Metric):
     id = "defects_by_env_priority"
@@ -36,6 +37,7 @@ class DefectsByEnvPriority(Metric):
         df["environment"] = df["environment"].apply(self._split_environment_value)
         df = df.explode("environment")
         df["environment"] = df["environment"].astype("string").str.strip()
+        df["priority"] = df["priority"].map(normalize_priority)
         
         tbl = (
             df.groupby(["environment", "priority"])
@@ -141,7 +143,8 @@ class DefectsByEnvPriority(Metric):
             tbl["environment"] = pd.Categorical(tbl["environment"], categories=category_order, ordered=True)
             tbl = tbl.sort_values("environment")
         
-        priority_colors = self._build_priority_color_map(tbl["priority"].dropna().astype(str).unique())
+        priority_order = ordered_priorities(tbl["priority"].dropna().astype(str).unique())
+        priority_colors = self._build_priority_color_map(priority_order)
 
         fig = px.bar(
             tbl,
@@ -150,7 +153,10 @@ class DefectsByEnvPriority(Metric):
             color="priority",
             barmode="stack",
             title="Defects by Environment (stacked by Priority)",
-            category_orders={"environment": category_order} if category_order is not None else None,
+            category_orders={
+                **({"environment": category_order} if category_order is not None else {}),
+                "priority": priority_order,
+            },
             color_discrete_map=priority_colors,
         )
         fig.update_layout(

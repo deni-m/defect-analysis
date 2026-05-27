@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import Optional
 from .base import Metric, MetricResult, _df_to_records_json_safe
+from .priority_ordering import apply_priority_order, normalize_priority
 
 class DefectAge(Metric):
     id = "defect_age"
@@ -60,6 +61,7 @@ class DefectAge(Metric):
 
         # Per-priority aggregation
         if "priority" in d.columns:
+            d["priority"] = d["priority"].map(normalize_priority)
             by_prio = (
                 d.groupby("priority")["age_days"]
                 .agg(
@@ -74,6 +76,7 @@ class DefectAge(Metric):
             # Round numeric columns for readability
             num_cols = [c for c in by_prio.columns if c not in ["priority"]]
             by_prio[num_cols] = by_prio[num_cols].apply(lambda col: col.round(1))
+            by_prio, _ = apply_priority_order(by_prio, profile=profile)
         else:
             by_prio = pd.DataFrame(columns=["priority", "count", "avg_age", "p50", "p90", "max_age"])
 
@@ -142,11 +145,13 @@ class DefectAge(Metric):
         # Fallback: use age_by_priority (bar of avg_age) but keep title consistent
         by_prio = result.tables.get("age_by_priority")
         if by_prio is not None and not by_prio.empty and {"priority", "avg_age"}.issubset(by_prio.columns):
+            priority_order = by_prio["priority"].astype(str).tolist()
             fig = px.bar(
                 by_prio,
                 x="priority",
                 y="avg_age",
                 title="Defect Age Distribution (days)",
+                category_orders={"priority": priority_order},
                 color_discrete_sequence=["#3498db"]  # Nice blue
             )
             return fig.to_html(include_plotlyjs=False, full_html=False)
@@ -182,4 +187,3 @@ class DefectAgeResult(MetricResult):
         # No tables included in LLM payload; summary stats provided in extra fields
         out["tables"] = {}
         return out
-

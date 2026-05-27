@@ -71,3 +71,20 @@ def test_leakage_rate_rows_with_env_all_empty():
     res = metric.compute(df, {"exclude_statuses": []})
     overall = res.tables["leakage_overall"].iloc[0]
     assert overall["rows_with_env"] == 0
+
+
+def test_leakage_rate_by_priority_uses_prefixed_priority_order_without_profile():
+    df = pd.DataFrame([
+        {"status": "Closed", "environment": "QA", "priority": "2-Major"},
+        {"status": "Closed", "environment": "PROD", "priority": "4-Minor"},
+        {"status": "Closed", "environment": "QA", "priority": "1-Critical"},
+        {"status": "Closed", "environment": "PROD", "priority": "0-Showstopper"},
+        {"status": "Closed", "environment": "QA", "priority": "3-Average"},
+    ])
+
+    result = LeakageRate().compute(df, {"leak_envs": ["PROD"], "exclude_statuses": []})
+    priorities = result.tables["leakage_by_priority"]["priority"].astype(str).tolist()
+    html = LeakageRate().build_figure(result)
+
+    assert priorities == ["0-Showstopper", "1-Critical", "2-Major", "3-Average", "4-Minor"]
+    assert '"categoryarray":["0-Showstopper","1-Critical","2-Major","3-Average","4-Minor"]' in html

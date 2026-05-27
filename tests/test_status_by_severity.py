@@ -50,3 +50,18 @@ def test_status_by_severity_llm_payload():
     # Should NOT contain percent columns
     assert all("percent_priority" not in row for row in llm_table)
     assert all("percent_overall" not in row for row in llm_table)
+
+
+def test_status_by_severity_uses_prefixed_priority_order_without_profile():
+    df = pd.DataFrame([
+        {"priority": "2-Major", "status": "Done"},
+        {"priority": "4-Minor", "status": "Done"},
+        {"priority": "1-Critical", "status": "Done"},
+        {"priority": "0-Showstopper", "status": "Done"},
+        {"priority": "3-Average", "status": "Done"},
+    ])
+
+    result = StatusBySeverity().compute(df, {})
+    html = StatusBySeverity().build_figure(result)
+
+    assert '"categoryarray":["0-Showstopper","1-Critical","2-Major","3-Average","4-Minor"]' in html
