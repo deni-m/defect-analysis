@@ -1,6 +1,6 @@
 project:
   timezone: "Europe/Kyiv"
-  version: "2026.05.22"
+  version: "2026.05.28"
 
 # Field mapping from CSV columns to canonical field names
 # Can be detected automatically if auto_mapping is enabled

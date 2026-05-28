@@ -5,7 +5,17 @@
       "Bash(python:*)",
       "Bash(xargs cat:*)",
       "Bash(xargs -I {} sh -c 'echo \"\"\"\"=== {} ===\"\"\"\" && grep -E \"\"\"\"error:|RESPONSE\"\"\"\" {} | head -5')",
-      "Bash(copy:*)"
+      "Bash(copy:*)",
+      "Bash(.venv/Scripts/pytest *)",
+      "Bash(.venv/Scripts/pytest.exe *)",
+      "Bash(PYTHONPATH=src .venv/Scripts/python.exe *)",
+      "Bash(python3 -m pytest tests/test_data_profiler.py -q)",
+      "Read(//Library/Frameworks/Python.framework/Versions/**)",
+      "Read(//Library/Frameworks/Python.framework/**)",
+      "Read(//Users/Denys_Belozerskiy/Library/**)",
+      "Bash(uv run *)",
+      "Bash(python3 *)",
+      "Bash(git stash *)"
     ],
     "deny": [],
     "ask": []

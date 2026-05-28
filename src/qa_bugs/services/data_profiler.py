@@ -130,7 +130,7 @@ class DataProfiler:
     
     # Priority keywords for fuzzy matching
     PRIORITY_KEYWORDS = {
-        "critical": ["critical", "blocker", "sev1", "p0", "highest"],
+        "critical": ["critical", "blocker", "showstopper", "sev1", "p0", "highest"],
         "high": ["high", "major", "sev2", "p1"],
         "medium": ["medium", "moderate", "normal", "sev3", "p2"],
         "low": ["low", "minor", "sev4", "p3"],
@@ -417,7 +417,7 @@ class DataProfiler:
         """Classify and order priority values by severity."""
         unique_priorities = priority_series.dropna().unique().tolist()
         unique_priorities = [str(p) for p in unique_priorities]
-        
+
         if not unique_priorities:
             return PriorityProfile(
                 all_priorities=[],
@@ -426,13 +426,63 @@ class DataProfiler:
                 method_used="none",
                 warnings=["No priority values found in data"]
             )
-        
-        # Use fuzzy matching to order by severity (LLM can be added later)
+
+        logger.info(f"Classifying {len(unique_priorities)} unique priorities: {unique_priorities}")
+
+        if self.llm_enabled and self.llm_service:
+            return self._llm_classify_priorities(unique_priorities, config)
+        else:
+            return self._fuzzy_classify_priorities(unique_priorities, config)
+
+    def _llm_classify_priorities(self, unique_priorities: List[str], config: Optional[dict]) -> PriorityProfile:
+        """Use LLM to intelligently order priority values by severity."""
+        logger.info("Attempting LLM-based priority classification")
+
+        prompt = self._build_priority_classification_prompt(unique_priorities)
+
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            ok, response_text, error = self.llm_service._chat(
+                model=self.llm_service.deployment,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=500,
+                metric_id="priority_classification"
+            )
+
+            if not ok:
+                logger.warning(f"LLM priority classification failed: {error}. Falling back to fuzzy matching")
+                return self._fuzzy_classify_priorities(unique_priorities, config, llm_error=error)
+
+            logger.info("LLM priority classification successful")
+
+            severity_order = self._parse_priority_classification_response(response_text, unique_priorities)
+
+            return PriorityProfile(
+                all_priorities=unique_priorities,
+                severity_order=severity_order,
+                confidence=0.9,
+                method_used="llm",
+                warnings=[]
+            )
+
+        except Exception as e:
+            logger.error(f"Exception during LLM priority classification: {e}", exc_info=True)
+            return self._fuzzy_classify_priorities(unique_priorities, config, llm_error=str(e))
+
+    def _fuzzy_classify_priorities(
+        self,
+        unique_priorities: List[str],
+        config: Optional[dict],
+        llm_error: Optional[str] = None
+    ) -> PriorityProfile:
+        """Fallback fuzzy keyword matching for priority classification."""
+        logger.info("Using fuzzy keyword matching for priority classification")
+
         severity_map = {}
         for priority in unique_priorities:
             priority_lower = priority.lower().strip()
-            
-            # Match to severity level
+
             if any(kw in priority_lower for kw in self.PRIORITY_KEYWORDS["critical"]):
                 severity_map[priority] = 0
             elif any(kw in priority_lower for kw in self.PRIORITY_KEYWORDS["high"]):
@@ -444,18 +494,70 @@ class DataProfiler:
             elif any(kw in priority_lower for kw in self.PRIORITY_KEYWORDS["trivial"]):
                 severity_map[priority] = 4
             else:
-                severity_map[priority] = 999  # Unknown
-        
-        # Sort by severity
+                severity_map[priority] = 999
+
+        unclassified = [p for p, rank in severity_map.items() if rank == 999]
         severity_order = sorted(unique_priorities, key=lambda p: severity_map[p])
-        
+
+        warnings = []
+        if llm_error:
+            warnings.append(f"LLM classification failed ({llm_error}), used fuzzy matching")
+        if unclassified:
+            warnings.append(f"Unrecognized priorities (appended at end): {', '.join(unclassified)}")
+
         return PriorityProfile(
             all_priorities=unique_priorities,
             severity_order=severity_order,
-            confidence=0.7,
+            confidence=0.6 if not unclassified else 0.4,
             method_used="fuzzy",
-            warnings=[]
+            warnings=warnings
         )
+
+    def _build_priority_classification_prompt(self, unique_priorities: List[str]) -> str:
+        """Build prompt for LLM priority classification."""
+        priorities_str = "\n".join([f"  - {p}" for p in unique_priorities])
+
+        return f"""You are a bug tracking system expert. Order the following bug priority values from highest severity to lowest severity.
+
+**Priority Values to Order:**
+{priorities_str}
+
+**Ordering Rules:**
+- Place showstoppers, blockers, and critical issues first
+- Standard ordering: showstopper/blocker > critical/highest > major/high > medium/normal > minor/low > trivial/lowest
+- Use semantic meaning in a QA/software context for ambiguous names
+- Include ALL provided priorities in your response
+
+**Response Format:**
+Return ONLY a YAML list in this exact format (no markdown fences, no explanations), ordered from highest to lowest severity:
+
+severity_order:
+  - Priority1
+  - Priority2
+  - Priority3
+
+Use EXACT original priority names (case-sensitive) in your response.
+
+Your response (YAML only):"""
+
+    def _parse_priority_classification_response(self, response: str, fallback: List[str]) -> List[str]:
+        """Parse YAML priority order from LLM response."""
+        import yaml
+
+        if "```yaml" in response:
+            response = response.split("```yaml")[1].split("```")[0].strip()
+        elif "```" in response:
+            response = response.split("```")[1].split("```")[0].strip()
+
+        data = yaml.safe_load(response)
+        order = data.get("severity_order") or []
+
+        # Ensure all priorities are present (LLM might omit some)
+        present = set(order)
+        missing = [p for p in fallback if p not in present]
+        if missing:
+            logger.warning(f"LLM omitted priorities, appending at end: {missing}")
+        return order + missing
     
     def _classify_environments(self, env_series: pd.Series, config: Optional[dict]) -> EnvironmentProfile:
         """Classify and order environments by pipeline stage."""
@@ -719,8 +821,12 @@ Your response (YAML only):"""
         # Priority classification
         if profile.priority_profile:
             pp = profile.priority_profile
-            lines.append(f"\n**Priority Order** ({pp.method_used}):")
+            lines.append(f"\n**Priority Order** ({pp.method_used}, confidence: {pp.confidence:.0%}):")
             lines.append(f"  {' > '.join(pp.severity_order)}")
+            if pp.warnings:
+                lines.append(f"  ⚠ Warnings:")
+                for warning in pp.warnings:
+                    lines.append(f"    - {warning}")
         
         # Environment classification
         if profile.environment_profile:

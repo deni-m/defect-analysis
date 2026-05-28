@@ -36,9 +36,12 @@ def ordered_priorities(values: Iterable[Any], profile: Any = None) -> list[str]:
 
     profile_order = _profile_priority_order(profile)
     if profile_order:
-        ordered = [priority for priority in profile_order if priority in priorities]
-        ordered.extend(sorted((priority for priority in priorities if priority not in ordered), key=_priority_sort_key))
-        return ordered
+        in_profile = [p for p in profile_order if p in priorities]
+        not_in_profile = [p for p in priorities if p not in profile_order]
+        if not not_in_profile:
+            return in_profile
+        # Merge: sort everything by semantic rank so unknowns land at correct position
+        return sorted(priorities, key=_priority_sort_key)
 
     return sorted(priorities, key=_priority_sort_key)
 
