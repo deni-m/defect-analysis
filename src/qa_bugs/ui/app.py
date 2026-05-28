@@ -192,6 +192,20 @@ def main():
             uploaded_file = _LocalUploadedFile(local_path)
             st.info(f"E2E mode active: using local input file {local_path.name}")
 
+    run_button_slot = None
+
+    if uploaded_file is None:
+        st.info("Upload a CSV file to enable analysis.")
+        run_button_slot = st.empty()
+        run_button_slot.button(
+            "🚀 Run Analysis",
+            type="primary",
+            use_container_width=True,
+            disabled=True,
+            help="Upload a CSV file first.",
+            key="run_analysis_waiting_for_file",
+        )
+
     if uploaded_file is not None:
         # Reset analysis state when new file is uploaded
         if 'last_uploaded_file' not in st.session_state or st.session_state['last_uploaded_file'] != uploaded_file.name:
@@ -544,6 +558,16 @@ def main():
                 if use_until:
                     until_date = st.date_input("Created until")
 
+        run_button_slot = st.empty()
+        run_button_slot.button(
+            "🚀 Run Analysis",
+            type="primary",
+            use_container_width=True,
+            disabled=True,
+            help="Preparing uploaded file and detecting headers...",
+            key="run_analysis_processing_headers",
+        )
+
         # Metric readiness warning (outside the expander)
         confirmed_partial = True
         missing_by_metric = st.session_state.get('missing_by_metric', {})
@@ -560,7 +584,16 @@ def main():
 
         # Run analysis button (outside the expander)
         run_disabled = bool(missing_by_metric) and not confirmed_partial
-        if st.button("🚀 Run Analysis", type="primary", use_container_width=True, disabled=run_disabled):
+        run_button_slot.empty()
+        run_clicked = run_button_slot.button(
+            "🚀 Run Analysis",
+            type="primary",
+            use_container_width=True,
+            disabled=run_disabled,
+            help="Confirm skipped metrics before running." if run_disabled else None,
+            key="run_analysis",
+        )
+        if run_clicked:
             with st.spinner("Running analysis... This may take a minute."):
                 try:
                     # Create output directory for this analysis run
