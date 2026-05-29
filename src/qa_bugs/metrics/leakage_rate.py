@@ -237,11 +237,77 @@ class LeakageRate(Metric):
                     )
                 charts["leakage_by_priority"] = fig
 
+        # 8) Quarterly breakdown (visual only, excluded from LLM analysis payload)
+        if total > 0 and "created_at" in d.columns:
+            created_at = pd.to_datetime(d["created_at"], errors="coerce", utc=True).dt.tz_convert(None)
+            by_quarter_source = d.loc[created_at.notna(), ["leaked"]].copy()
+            by_quarter_source["quarter"] = created_at[created_at.notna()].dt.to_period("Q").astype(str)
+
+            by_quarter = (
+                by_quarter_source.groupby("quarter", dropna=False)
+                .agg(total=("leaked", "size"), leaked=("leaked", "sum"))
+                .reset_index()
+                .sort_values("quarter")
+            )
+            if not by_quarter.empty:
+                by_quarter["caught"] = by_quarter["total"] - by_quarter["leaked"]
+                by_quarter["leakage_percent"] = by_quarter.apply(
+                    lambda r: round((r["leaked"] / r["total"] * 100.0), 2) if r["total"] > 0 else 0.0,
+                    axis=1,
+                )
+                tables["leakage_by_quarter"] = by_quarter
+
+                fig = px.bar(
+                    by_quarter,
+                    x="quarter",
+                    y="leakage_percent",
+                    title="Defect Leakage by Quarter",
+                    color_discrete_sequence=["#5470C6"],
+                )
+                fig.update_traces(
+                    text=[
+                        f"{int(row['leakage_percent'])}% ({int(row['leaked'])} out of {int(row['total'])})"
+                        for _, row in by_quarter.iterrows()
+                    ],
+                    textposition="outside",
+                )
+                y_max = max(5, by_quarter["leakage_percent"].max() * 1.15)
+                fig.update_layout(
+                    margin=dict(t=50, b=50),
+                    yaxis=dict(title="leakage_percent", range=[0, y_max]),
+                    xaxis=dict(title="quarter", categoryorder="array", categoryarray=by_quarter["quarter"].tolist()),
+                    height=350,
+                )
+                threshold = 5.0
+                if y_max >= threshold:
+                    fig.add_shape(
+                        type="line",
+                        x0=-0.5,
+                        x1=len(by_quarter["quarter"]) - 0.5,
+                        y0=threshold,
+                        y1=threshold,
+                        line=dict(color="red", width=1, dash="solid"),
+                    )
+                    fig.add_annotation(
+                        x=len(by_quarter["quarter"]) - 0.5,
+                        y=threshold,
+                        text="5% threshold",
+                        showarrow=False,
+                        xanchor="right",
+                        yanchor="bottom",
+                        font=dict(color="red", size=10),
+                        bgcolor="rgba(255,255,255,0.6)",
+                        bordercolor="red",
+                        borderwidth=0,
+                    )
+                charts["leakage_by_quarter"] = fig
+
         return MetricResult(
             self.id,
             tables=tables,
             charts=charts,
             summary=f"Leakage={leakage_pct}% (leaked {leaked}/{total})",
+            llm_tables=["leakage_overall", "leakage_debug", "leakage_by_priority"],
             quality_notes=(
                 [
                     f"Low data quality: only {rows_with_env}/{total} rows "
@@ -281,40 +347,45 @@ class LeakageRate(Metric):
                 "</div>"
             )
 
-        # Build chart
+        # Build charts
         chart_obj = result.charts.get("leakage_by_priority")
-        chart_html = ""
+        chart_html_parts = []
         if chart_obj is None:
             by_priority = result.tables.get("leakage_by_priority")
-            if by_priority is None or by_priority.empty:
-                return kpi_html if kpi_html else None
-            import plotly.express as px
-            y_col = None
-            for cand in ("leakage_percent", "rate_percent"):
-                if cand in by_priority.columns:
-                    y_col = cand
-                    break
-            if y_col is None:
-                return kpi_html if kpi_html else None
-            plot_df = by_priority.copy()
-            if "priority" in plot_df.columns:
-                plot_df["priority"] = plot_df["priority"].map(normalize_priority)
-            plot_df, priority_order = apply_priority_order(plot_df)
-            fig = px.bar(
-                plot_df,
-                x="priority",
-                y=y_col,
-                title="Leakage % by Priority",
-                category_orders={"priority": priority_order},
-                color_discrete_sequence=["#5470C6"]  # Blue color
-            )
-            fig.update_layout(margin=dict(t=50, b=50), height=350)
-            chart_html = fig.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False})
+            if by_priority is not None and not by_priority.empty:
+                y_col = None
+                for cand in ("leakage_percent", "rate_percent"):
+                    if cand in by_priority.columns:
+                        y_col = cand
+                        break
+                if y_col is not None:
+                    plot_df = by_priority.copy()
+                    if "priority" in plot_df.columns:
+                        plot_df["priority"] = plot_df["priority"].map(normalize_priority)
+                    plot_df, priority_order = apply_priority_order(plot_df)
+                    fig = px.bar(
+                        plot_df,
+                        x="priority",
+                        y=y_col,
+                        title="Leakage % by Priority",
+                        category_orders={"priority": priority_order},
+                        color_discrete_sequence=["#5470C6"]  # Blue color
+                    )
+                    fig.update_layout(margin=dict(t=50, b=50), height=350)
+                    chart_html_parts.append(fig.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False}))
         else:
             try:
-                chart_html = chart_obj.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False})
+                chart_html_parts.append(chart_obj.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False}))
             except Exception:
-                chart_html = ""
+                pass
+
+        quarter_chart_obj = result.charts.get("leakage_by_quarter")
+        if quarter_chart_obj is not None:
+            try:
+                chart_html_parts.append(quarter_chart_obj.to_html(include_plotlyjs=False, full_html=False, config={'displayModeBar': False}))
+            except Exception:
+                pass
 
         # Combine KPI panel and chart
+        chart_html = "".join(chart_html_parts)
         return kpi_html + chart_html if (kpi_html or chart_html) else None

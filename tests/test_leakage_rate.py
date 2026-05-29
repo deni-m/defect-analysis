@@ -88,3 +88,27 @@ def test_leakage_rate_by_priority_uses_prefixed_priority_order_without_profile()
 
     assert priorities == ["0-Showstopper", "1-Critical", "2-Major", "3-Average", "4-Minor"]
     assert '"categoryarray":["0-Showstopper","1-Critical","2-Major","3-Average","4-Minor"]' in html
+
+
+def test_leakage_rate_adds_quarter_chart_without_llm_analysis_table():
+    df = pd.DataFrame([
+        {"status": "Closed", "environment": "QA", "created_at": "2025-01-10T00:00:00Z"},
+        {"status": "Closed", "environment": "PROD", "created_at": "2025-02-10T00:00:00Z"},
+        {"status": "Closed", "environment": "PROD", "created_at": "2025-04-10T00:00:00Z"},
+        {"status": "Closed", "environment": "QA", "created_at": "2025-04-11T00:00:00Z"},
+        {"status": "Closed", "environment": "QA", "created_at": "not-a-date"},
+    ])
+
+    result = LeakageRate().compute(df, {"leak_envs": ["PROD"], "exclude_statuses": []})
+    by_quarter = result.tables["leakage_by_quarter"]
+    html = LeakageRate().build_figure(result)
+    payload = result.payload()
+
+    assert by_quarter["quarter"].tolist() == ["2025Q1", "2025Q2"]
+    assert by_quarter["total"].tolist() == [2, 2]
+    assert by_quarter["leaked"].tolist() == [1, 1]
+    assert by_quarter["leakage_percent"].tolist() == [50.0, 50.0]
+    assert "Defect Leakage by Quarter" in html
+    assert "2025Q1" in html
+    assert "2025Q2" in html
+    assert "leakage_by_quarter" not in payload["tables"]

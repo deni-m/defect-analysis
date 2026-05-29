@@ -458,8 +458,8 @@ def display_results(result: AnalysisResult, config: AnalysisConfig):
 
             if fig_html:
                 # Display HTML figure (Plotly charts)
-                # Use taller height for cumulative metric (two stacked charts)
-                height = 900 if metric_id == "cumulative_open_closed" else 500
+                # Use taller height for metrics that render multiple stacked charts.
+                height = 900 if metric_id in {"cumulative_open_closed", "leakage_rate"} else 500
                 st.components.v1.html(
                     _wrap_figure_html(fig_html),
                     height=height,
